@@ -46,6 +46,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- AdMob 앱 ID. **지금은 구글 테스트 ID다.**
+             실제 단위(admob.dart의 kTestInterstitialUnitId)를 바꿀 때 이것도 함께
+             바꿔야 한다 — 둘 중 하나만 바꾸면 광고가 조용히 안 나온다.
+
+             반드시 <application>의 직계 자식이어야 한다. <activity> 안에 두면
+             SDK가 앱 ID를 못 찾아 MobileAdsInitProvider가 앱을 죽인다.
+             실기기에서 그렇게 죽여 보고 알았다. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

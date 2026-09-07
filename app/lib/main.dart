@@ -1,5 +1,8 @@
 import 'package:flutter/foundation.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -73,6 +76,9 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _catchEverything();
   _measureFrames();
+
+  // 광고 SDK. 실패해도 앱은 계속 뜬다 — 광고가 없다고 실거래가를 못 볼 이유가 없다.
+  unawaited(MobileAds.instance.initialize());
 
   final prefs = await SharedPreferences.getInstance();
   final database = AppDatabase();

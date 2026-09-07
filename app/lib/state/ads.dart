@@ -9,6 +9,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/ads/ad_policy.dart';
+import '../features/ads/admob.dart';
 import '../features/ads/ads.dart';
 import 'app_state.dart';
 
@@ -17,7 +18,8 @@ const String _firstRunKey = 'ad.first_run_at';
 
 /// 지금은 광고 단위가 없다. 계정이 생기면 여기만 갈아 끼운다.
 final adsProvider = Provider<InterstitialAds>(
-  (ref) => const NoInterstitialAds(),
+  // 지금은 구글 테스트 단위다. 계정이 생기면 unitId만 바꾸면 된다.
+  (ref) => AdMobInterstitial()..preload(),
 );
 
 final adPolicyProvider = Provider<AdPolicy>((ref) => const AdPolicy());
