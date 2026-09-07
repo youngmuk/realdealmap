@@ -10,6 +10,21 @@ library;
 
 import 'package:flutter/material.dart';
 
+/// 글자 배율.
+///
+/// 실기기에서 너무 작아 2배로 올렸다. **크기를 위젯마다 손보지 않고 여기 한 곳에
+/// 둔다** — 스무 군데에 흩어진 숫자는 다음에 조정할 때 반드시 몇 개가 빠진다.
+/// 사용자의 시스템 글자 크기 설정에 곱해지므로 접근성 설정도 그대로 살아 있다.
+const double kTextScale = 2.0;
+
+/// 상세 정보창만 [kTextScale]의 이 비율로 줄인다.
+///
+/// 상세는 항목이 스무 개 가까이 되는 표라, 지도·목록과 같은 배율이면 한 화면에
+/// 서너 줄밖에 안 들어와 **비교가 안 된다**. 지도는 크게, 표는 조금 작게가 맞다.
+/// 표의 값이 한 줄에 들어가는 지점이다. 실기기에서 0.8까지는 계약일·면적이
+/// 두 줄로 접혔고, 0.72에서 접히지 않았다.
+const double kDetailTextScale = 0.72;
+
 class Palette {
   const Palette._();
 
@@ -64,16 +79,21 @@ ThemeData buildTheme() {
         .apply(bodyColor: Palette.ink, displayColor: Palette.ink)
         .copyWith(
           // 금액이 이 자리에 온다. 화면에서 가장 큰 글자여야 한다.
+          // 색을 명시한다. copyWith는 위의 apply(bodyColor:)를 덮어쓰기 때문에
+          // 색을 빼면 기본값으로 떨어져 **제목이 본문보다 흐려진다** — 실기기에서
+          // 건물 이름이 주소보다 옅게 나왔다.
           headlineMedium: const TextStyle(
             fontSize: 30,
             fontWeight: FontWeight.w800,
             letterSpacing: -0.8,
             height: 1.1,
+            color: Palette.ink,
           ),
           titleMedium: const TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w700,
             letterSpacing: -0.2,
+            color: Palette.ink,
           ),
           bodyMedium: const TextStyle(fontSize: 14, height: 1.5),
           labelSmall: const TextStyle(

@@ -24,7 +24,19 @@ class DetailSheet extends StatelessWidget {
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
-        builder: (_) => DetailSheet(tx: tx),
+        builder: (context) {
+          // 앱 전체 배율에 곱한다. 사용자가 시스템 글자 크기를 올려 두었다면
+          // 그 비율은 그대로 살아 있고, 상세만 한 단계 작아진다.
+          final media = MediaQuery.of(context);
+          return MediaQuery(
+            data: media.copyWith(
+              textScaler: TextScaler.linear(
+                media.textScaler.scale(1) * kDetailTextScale,
+              ),
+            ),
+            child: DetailSheet(tx: tx),
+          );
+        },
       );
 
   @override
@@ -183,14 +195,18 @@ class _Row extends StatelessWidget {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 104,
+        // 라벨 열을 픽셀로 고정하지 않는다. 글자 배율이 올라가면 고정 폭이
+        // 화면의 절반을 먹어 값이 두 줄로 접힌다. 비율로 나누면 어떤 배율에서도
+        // 라벨과 값의 균형이 유지된다.
+        Expanded(
+          flex: 4,
           child: Text(
             row.label,
             style: const TextStyle(fontSize: 13, color: Palette.ink3),
           ),
         ),
         Expanded(
+          flex: 6,
           child: Text(
             row.value,
             style: TextStyle(

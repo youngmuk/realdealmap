@@ -21,6 +21,15 @@ class RealDealMapApp extends StatelessWidget {
     title: '실거래가 지도',
     debugShowCheckedModeBanner: false,
     theme: buildTheme(),
+    builder: (context, child) {
+      final media = MediaQuery.of(context);
+      return MediaQuery(
+        data: media.copyWith(
+          textScaler: TextScaler.linear(media.textScaler.scale(1) * kTextScale),
+        ),
+        child: child!,
+      );
+    },
     home: const HomeShell(),
   );
 }
@@ -79,11 +88,14 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                region?.sggName ?? (sggCd ?? '지역 선택'),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
+              Flexible(
+                child: Text(
+                  region?.sggName ?? (sggCd ?? '지역 선택'),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
               const Icon(Icons.expand_more, size: 20),
@@ -191,7 +203,9 @@ class _FilterSheet extends ConsumerWidget {
     final filter = ref.watch(filterProvider);
     final notifier = ref.read(filterProvider.notifier);
 
-    return Padding(
+    // 글자 배율이 커지면 내용이 화면을 넘는다. 넘치면 스크롤한다 —
+    // 잘려서 안 보이는 설정은 없는 설정과 같다.
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
