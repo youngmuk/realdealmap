@@ -257,12 +257,12 @@ class _MapPageState extends ConsumerState<MapPage> {
     ref.listen(filterProvider, (_, _) => unawaited(_syncViewport()));
 
     final camera = ref.read(lastCameraProvider);
-    final style = ref.read(configProvider).mapStyle;
+    final style = ref.read(configProvider).resolvedMapStyle;
 
     return Stack(
       children: [
         ml.MapLibreMap(
-          styleString: style.isEmpty ? kDefaultMapStyle : style,
+          styleString: style,
           initialCameraPosition: ml.CameraPosition(
             target: ml.LatLng(camera?.lat ?? 37.4979, camera?.lng ?? 127.0276),
             zoom: camera?.zoom ?? 13.5,

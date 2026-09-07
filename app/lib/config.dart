@@ -10,6 +10,7 @@ class AppConfig {
     required this.dataBaseUrl,
     required this.workerBaseUrl,
     required this.mapStyle,
+    required this.vworldKey,
   });
 
   /// R2 공개 버킷. 개발은 `r2.dev`, 출시 때 사용자 지정 도메인으로 바꾼다.
@@ -31,16 +32,60 @@ class AppConfig {
       defaultValue: 'https://realdealmap-trigger.jsmgames.workers.dev',
     ),
     mapStyle: String.fromEnvironment('MAP_STYLE', defaultValue: ''),
+    vworldKey: String.fromEnvironment('VWORLD_KEY', defaultValue: ''),
   );
 
   bool get hasData => dataBaseUrl.isNotEmpty;
+
+  /// VWorld 배경지도 키.
+  ///
+  /// **이 키는 앱에 들어간다.** 타일 요청 URL에 실려 나가므로 숨길 방법이 없고,
+  /// 어떤 타일 제공자를 쓰든 마찬가지다(카카오 JS 키도 같다). 그래서 서버 비밀과는
+  /// 다르게 다룬다 — VWorld 쪽에서 앱/도메인을 등록해 사용처를 제한하는 것이
+  /// 유일한 방어다. 국토부 인증키·R2 자격증명은 여전히 앱에 넣지 않는다.
+  final String vworldKey;
+
+  /// 실제로 쓸 지도 스타일.
+  ///
+  /// MAP_STYLE을 직접 준 경우가 가장 세고, 그다음이 VWorld, 마지막이 OSM이다.
+  String get resolvedMapStyle {
+    if (mapStyle.isNotEmpty) return mapStyle;
+    if (vworldKey.isNotEmpty) return vworldStyle(vworldKey);
+    return kDefaultMapStyle;
+  }
 }
 
-/// 타일 출처는 아직 정해지지 않았다 (G1 이월 과제).
+/// VWorld 배경지도 스타일 (G1 이월 과제의 답).
 ///
-/// 지금은 OSM 래스터를 쓴다. **출시 전에 바꿔야 한다** — OSM 타일 서버의 이용
-/// 정책은 앱 트래픽을 허용하지 않는다. 후보는 VWorld(국내, 무료 신청)와
-/// 카카오 타일이다. 스타일을 문자열로 두었으므로 교체는 이 상수 하나다.
+/// WMTS 경로가 `{z}/{y}/{x}`다 — 흔한 `{z}/{x}/{y}`가 아니다. 순서를 바꾸면
+/// 타일이 조용히 엉뚱한 자리에 붙어서, 지도가 나오긴 하는데 위치가 틀린다.
+/// 그런 오류는 "안 나온다"보다 알아채기 어렵다.
+///
+/// 좌표계는 웹 메르카토르에 좌상단 원점(XYZ)이라 maplibre 기본값과 같다.
+String vworldStyle(String apiKey) =>
+    '''
+{
+  "version": 8,
+  "sources": {
+    "vworld": {
+      "type": "raster",
+      "tiles": ["https://api.vworld.kr/req/wmts/1.0.0/$apiKey/Base/{z}/{y}/{x}.png"],
+      "tileSize": 256,
+      "attribution": "© 국토교통부 공간정보 오픈플랫폼(VWorld)",
+      "maxzoom": 18
+    }
+  },
+  "layers": [
+    { "id": "vworld", "type": "raster", "source": "vworld" }
+  ]
+}
+''';
+
+/// 폴백 타일. **개발용이다.**
+///
+/// OSM 타일 서버의 이용 정책은 앱 트래픽을 허용하지 않는다. VWorld 키가 있으면
+/// 그쪽을 쓰고, 없을 때만 여기로 떨어진다. 키 없이도 화면이 뜨게 하려는 것이지
+/// 이 상태로 출시하려는 것이 아니다.
 const String kDefaultMapStyle = '''
 {
   "version": 8,
