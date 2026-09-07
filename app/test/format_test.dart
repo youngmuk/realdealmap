@@ -139,4 +139,28 @@ void main() {
       expect(formatCount(-1234), '-1,234');
     });
   });
+
+  // "북구은"과 "담양군는"은 읽는 사람에게 틀린 글이다. 지역 이름은 데이터에서
+  // 오므로 문장을 미리 써 둘 수 없고, 붙일 때 정해야 한다.
+  group('조사', () {
+    test('받침이 없으면 는', () {
+      expect(topic('북구'), '북구는');
+      expect(topic('강남구'), '강남구는');
+      expect(topic('제주시'), '제주시는');
+    });
+
+    test('받침이 있으면 은', () {
+      expect(topic('담양군'), '담양군은');
+      expect(topic('종로구'), '종로구는');
+      expect(topic('광산구'), '광산구는');
+      expect(topic('여수시'), '여수시는');
+      expect(topic('영등포'), '영등포는');
+      expect(topic('안산'), '안산은');
+    });
+
+    test('한글이 아니면 판단하지 않고 받침 쪽으로 둔다', () {
+      expect(topic('Seoul'), 'Seoul은');
+      expect(topic(''), '은');
+    });
+  });
 }

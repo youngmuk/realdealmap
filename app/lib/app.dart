@@ -124,6 +124,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     if (region == null || !mounted) return;
 
     ref.read(selectedRegionProvider.notifier).select(region.sggCd);
+    // 사용자가 고른 것과 같은 자격이다. 지도가 이 신호를 보고 그쪽으로 옮긴다.
+    ref.read(regionFocusProvider.notifier).request();
     unawaited(ref.read(syncProvider.notifier).syncRegion(region.sggCd));
   }
 
@@ -150,7 +152,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     if (picked == null || !mounted) return;
 
     ref.read(selectedRegionProvider.notifier).select(picked);
+    ref.read(regionFocusProvider.notifier).request();
     unawaited(ref.read(syncProvider.notifier).syncRegion(picked));
+  }
+
+  void _showTab(int index) {
+    setState(() => _tab = index);
+    ref.adMoment(AdMoment.tabSwitched);
   }
 
   @override
@@ -209,14 +217,17 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           child: const _StatusBar(),
         ),
       ),
-      body: IndexedStack(index: _tab, children: const [MapPage(), ListPage()]),
+      body: IndexedStack(
+        index: _tab,
+        children: [
+          MapPage(onShowList: () => _showTab(1)),
+          const ListPage(),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         height: 58,
         selectedIndex: _tab,
-        onDestinationSelected: (i) {
-          setState(() => _tab = i);
-          ref.adMoment(AdMoment.tabSwitched);
-        },
+        onDestinationSelected: _showTab,
         destinations: const [
           NavigationDestination(icon: Icon(Icons.map_outlined), label: '지도'),
           NavigationDestination(icon: Icon(Icons.list_alt), label: '목록'),

@@ -122,6 +122,25 @@ final selectedRegionProvider = NotifierProvider<SelectedRegion, String?>(
   SelectedRegion.new,
 );
 
+/// 사용자가 지역을 **직접 골랐다**는 신호. 값에는 뜻이 없고 바뀌었다는 것만 쓴다.
+///
+/// 지도가 카메라로 유추한 지역 전환과 반드시 구별해야 한다.
+///
+/// 지도는 카메라가 멈출 때마다 지금 보는 자리가 어느 시군구인지 판정하고,
+/// 그 결과로 선택 지역을 바꾼다. 그 변화에도 카메라를 옮기면 **사용자가 지도를
+/// 끌 수 없게 된다** — 미는 족족 되돌아온다. 그렇다고 전부 안 옮기면
+/// 목록에서 담양군을 골라도 화면에는 강남구가 그대로 남는다.
+///
+/// 그래서 "누가 바꿨는가"를 신호로 따로 둔다.
+class RegionFocus extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void request() => state = state + 1;
+}
+
+final regionFocusProvider = NotifierProvider<RegionFocus, int>(RegionFocus.new);
+
 class LastCamera extends Notifier<CameraState?> {
   static const _key = 'camera.last';
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/sync/region_index.dart';
+import '../../format.dart';
 import '../../state/app_state.dart';
 import '../../theme.dart';
 
@@ -110,7 +111,7 @@ class _RegionChip extends StatelessWidget {
             ),
           ),
           Text(
-            '${region.records}건',
+            '${formatCount(region.records)}건',
             style: const TextStyle(fontSize: 11, color: Palette.ink3),
           ),
         ],

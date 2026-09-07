@@ -113,3 +113,21 @@ String formatCount(int n) {
   }
   return buffer.toString();
 }
+
+/// 이름 뒤에 붙는 조사를 받침에 맞춰 고른다.
+///
+/// "북구은"과 "담양군는"은 읽는 사람에게 **틀린 글**이다. 지역 이름은 데이터에서
+/// 오므로 문장을 미리 써 둘 수 없고, 그래서 붙일 때 정해야 한다.
+///
+/// 한글 음절은 U+AC00부터 28개씩 묶여 있고, 그 안에서의 자리가 종성이다.
+/// 0이면 받침이 없다. 한글이 아닌 글자로 끝나면 판단할 근거가 없으므로
+/// 받침이 있는 쪽으로 둔다 — 숫자·영문 지명에서 그편이 덜 어색하다.
+String withParticle(String word, String afterFinal, String afterVowel) {
+  if (word.isEmpty) return word + afterFinal;
+  final code = word.codeUnitAt(word.length - 1);
+  if (code < 0xAC00 || code > 0xD7A3) return word + afterFinal;
+  return word + ((code - 0xAC00) % 28 == 0 ? afterVowel : afterFinal);
+}
+
+/// `북구는` · `담양군은`
+String topic(String word) => withParticle(word, '은', '는');

@@ -29,7 +29,10 @@ import 'cluster_icons.dart';
 /// 가질 수 없고, **근사 좌표는 줌과 무관하게 묶어야 한다**는 규칙도
 /// 네이티브 옵션으로는 표현할 수 없다.
 class MapPage extends ConsumerStatefulWidget {
-  const MapPage({super.key});
+  const MapPage({this.onShowList, super.key});
+
+  /// 목록 탭으로 넘어가는 길. 지도에 찍을 것이 없을 때 안내한다.
+  final VoidCallback? onShowList;
 
   @override
   ConsumerState<MapPage> createState() => _MapPageState();
@@ -71,7 +74,8 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   /// 저장된 카메라가 없던 첫 진입인가. 있으면 사용자가 보던 자리를 지킨다 —
   /// 위치를 잡았다고 보던 화면을 빼앗지 않는다.
-  bool _placeOnFirstRegion = false;
+  /// 중심점이 없어 옮겨 가지 못한 지역. 화면에 그렇다고 적는다.
+  String? _noCenterFor;
 
   /// 처음 놓인 카메라 자리. 여기서 움직이기 전까지는 **지역을 추측하지 않는다**.
   ///
@@ -79,12 +83,6 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// 좌표는 강남이다. 그대로 두면 부산에 있는 사용자에게도 강남구가 열린다 —
   /// 실거래가는 그 오해가 값비싼 데이터다.
   ml.LatLng? _initialTarget;
-
-  @override
-  void initState() {
-    super.initState();
-    _placeOnFirstRegion = ref.read(lastCameraProvider) == null;
-  }
 
   @override
   void dispose() {
@@ -365,6 +363,29 @@ class _MapPageState extends ConsumerState<MapPage> {
     }
   }
 
+  /// 고른 지역으로 카메라를 옮긴다.
+  ///
+  /// 중심점은 그 지역 거래 좌표의 중앙값이라, 좌표가 하나도 안 붙은 지역에는
+  /// 없다. 그럴 때 옮기지 않는 것까지는 맞지만 **가만히 있으면 안 된다** —
+  /// 머리말은 담양군인데 화면에는 강남구가 그대로 남아, 사용자가 남의 동네
+  /// 거래를 자기가 고른 지역으로 읽는다. 그 경우는 화면에 말로 밝힌다.
+  Future<void> _focusSelectedRegion() async {
+    final sggCd = ref.read(selectedRegionProvider);
+    final controller = _controller;
+    if (sggCd == null || controller == null) return;
+
+    final center = ref.read(regionIndexProvider).value?.byCode(sggCd)?.center;
+    if (center == null) {
+      if (mounted) setState(() => _noCenterFor = sggCd);
+      return;
+    }
+
+    if (mounted) setState(() => _noCenterFor = null);
+    await controller.animateCamera(
+      ml.CameraUpdate.newLatLngZoom(ml.LatLng(center.lat, center.lng), 13.5),
+    );
+  }
+
   // ------------------------------------------------------------------ 탭
 
   /// 레이어 위의 탭은 [ml.MapLibreMapController.onFeatureTapped]로 온다.
@@ -462,27 +483,12 @@ class _MapPageState extends ConsumerState<MapPage> {
     // 첫 진입에서는 카메라가 이미 멈춘 뒤에 데이터가 들어온다. 그러면 동기화가
     // 성공하고 기준 시각까지 뜨는데 **마커만 0건**이다 — 사용자는 데이터가
     // 없다고 읽지, 화면이 안 갱신됐다고 읽지 않는다.
-    // 첫 진입에서 위치로 지역이 정해지면 그쪽으로 옮긴다.
+    // 사용자가 지역을 직접 고르면 그쪽으로 옮긴다.
     //
-    // 딱 한 번만 한다. 지도를 움직이면 지역 판정이 다시 돌고, 그때마다 카메라를
-    // 옮기면 **사용자가 지도를 끌 수 없게 된다** — 미는 족족 되돌아온다.
-    ref.listen(selectedRegionProvider, (previous, next) {
-      if (!_placeOnFirstRegion || previous != null || next == null) return;
-      _placeOnFirstRegion = false;
-      final center = ref.read(regionIndexProvider).value?.byCode(next)?.center;
-      final controller = _controller;
-      // 좌표가 하나도 안 붙은 지역은 중심점이 없다. 그런 곳으로 옮기면 바다
-      // 한가운데를 보여주게 되므로 그냥 있던 자리에 둔다.
-      if (center == null || controller == null) return;
-      unawaited(
-        controller.animateCamera(
-          ml.CameraUpdate.newLatLngZoom(
-            ml.LatLng(center.lat, center.lng),
-            13.5,
-          ),
-        ),
-      );
-    });
+    // **지역이 바뀌었다는 것만으로는 옮기지 않는다.** 지도는 카메라가 멈출 때마다
+    // 지금 보는 자리를 판정해 선택 지역을 바꾸는데, 그때도 옮기면 사용자가 지도를
+    // 끌 수 없게 된다 — 미는 족족 되돌아온다. 그래서 "누가 바꿨는가"를 본다.
+    ref.listen(regionFocusProvider, (_, _) => _focusSelectedRegion());
 
     ref.listen(syncProvider, (before, after) {
       if (before?.running == true && !after.running) unawaited(_syncViewport());
@@ -510,6 +516,27 @@ class _MapPageState extends ConsumerState<MapPage> {
           myLocationEnabled: false,
           trackCameraPosition: true,
         ),
+        // 고른 지역에 좌표가 하나도 없으면 그렇다고 말한다.
+        //
+        // 말하지 않으면 머리말은 담양군인데 화면에는 강남구가 그대로 남는다.
+        // 사용자는 그 마커들을 자기가 고른 지역의 거래로 읽는다.
+        if (_noCenterFor != null &&
+            _noCenterFor == ref.watch(selectedRegionProvider))
+          Positioned(
+            left: 12,
+            right: 12,
+            top: 12,
+            child: _NoCenterNotice(
+              name:
+                  ref
+                      .watch(regionIndexProvider)
+                      .value
+                      ?.byCode(_noCenterFor!)
+                      ?.sggName ??
+                  _noCenterFor!,
+              onList: widget.onShowList,
+            ),
+          ),
         // 오른쪽 여백을 함께 잡아 글자 배율이 커져도 범례가 화면을 넘지 않는다.
         Positioned(
           left: 12,
@@ -576,6 +603,51 @@ Map<String, dynamic> _toCollection(List<MapFeature> features) => {
 };
 
 /// 범례. 색이 뜻을 가지므로 뜻을 밝히지 않으면 장식이 된다.
+/// 좌표가 아직 없는 지역이라고 말한다.
+///
+/// 적재 직후에는 흔한 상태다 — 거래는 다 받았는데 주소를 좌표로 바꾸는 일이
+/// 아직 안 끝났다. 그 사정을 모르는 사용자에게는 "지도가 고장났다"로 보인다.
+class _NoCenterNotice extends StatelessWidget {
+  const _NoCenterNotice({required this.name, required this.onList});
+  final String name;
+  final VoidCallback? onList;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Palette.warnSoft,
+    borderRadius: BorderRadius.circular(10),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${topic(name)} 아직 지도에 찍을 좌표가 없습니다',
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: Palette.warn,
+            ),
+          ),
+          const SizedBox(height: 3),
+          const Text(
+            '거래는 모두 받았습니다. 주소를 좌표로 바꾸는 일이 끝나면 지도에도 '
+            '나옵니다. 그때까지는 목록에서 볼 수 있습니다.',
+            style: TextStyle(fontSize: 12, height: 1.45, color: Palette.ink2),
+          ),
+          if (onList != null) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(onPressed: onList, child: const Text('목록으로')),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
 class _Legend extends StatelessWidget {
   const _Legend({
     required this.drawn,
