@@ -228,7 +228,15 @@ class SyncController extends Notifier<SyncState> {
       running: false,
       last: outcome.status,
       message: outcome.message,
-      refreshedAt: manifest?.refreshedAt ?? state.refreshedAt,
+      // 서버에 못 닿았으면 **저장해 둔 기준 시각**을 쓴다.
+      //
+      // 이것을 안 하면 오프라인 재실행에서 "기준 시각 없음"이 뜬다. 데이터는
+      // 그대로 있고 언제 것인지도 알고 있는데 모른다고 말하는 셈이라,
+      // 실거래가에서는 이 한 줄이 데이터 자체만큼 중요하다.
+      refreshedAt:
+          manifest?.refreshedAt ??
+          state.refreshedAt ??
+          await _storedRefreshedAt(sggCd),
       triggered: state.triggered,
     );
 
@@ -237,6 +245,13 @@ class SyncController extends Notifier<SyncState> {
 
     final result = await ref.read(refreshTriggerProvider).request(sggCd);
     state = state.copyWith(triggered: result);
+  }
+
+  /// 이미 받아 둔 지역의 기준 시각. 없으면 정말로 없는 것이다.
+  Future<DateTime?> _storedRefreshedAt(String sggCd) async {
+    final row = await ref.read(databaseProvider).region(sggCd);
+    if (row == null) return null;
+    return DateTime.tryParse(row.refreshedAt)?.toUtc();
   }
 }
 

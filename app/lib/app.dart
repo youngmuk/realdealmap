@@ -49,6 +49,10 @@ class HomeShell extends ConsumerStatefulWidget {
 class _HomeShellState extends ConsumerState<HomeShell> {
   int _tab = 0;
 
+  /// 위치로 지역을 여는 것은 **한 번만** 시도한다. 색인이 늦게 와서 다시 부를
+  /// 때도 마찬가지다 — 실패할 때마다 권한 창을 다시 띄우면 앱이 아니라 성가심이다.
+  bool _triedLocation = false;
+
   @override
   void initState() {
     super.initState();
@@ -81,6 +85,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   /// 사용자에게 빈 화면을 주는 것보다, 가까운 데이터를 보여주고 지역 이름을
   /// 밝히는 편이 낫다.
   Future<void> _openHere() async {
+    if (_triedLocation) return;
+    // 색인이 없으면 좌표를 시군구로 풀 수 없다. 아직 시도한 것으로 치지 않고
+    // 색인이 도착할 때 다시 부른다 — 첫 실행에 네트워크가 늦으면 색인이 비어서
+    // 오는데, 그대로 포기하면 사용자는 영영 직접 골라야 한다.
+    if (ref.read(regionIndexProvider).value?.isEmpty ?? true) return;
+    _triedLocation = true;
+
     final (outcome, fix) = await ref.read(locationProvider).current();
     if (!mounted || fix == null) {
       if (mounted && outcome != LocationOutcome.ok) _sayWhyNoLocation(outcome);
@@ -124,6 +135,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    // 색인이 늦게 도착하면 그때 위치로 열어 본다.
+    ref.listen(regionIndexProvider, (_, next) {
+      if (next.value == null || next.value!.isEmpty) return;
+      if (ref.read(selectedRegionProvider) != null) return;
+      unawaited(_openHere());
+    });
+
     final index = ref.watch(regionIndexProvider).value;
     final sggCd = ref.watch(selectedRegionProvider);
     final region = sggCd == null ? null : index?.byCode(sggCd);
@@ -157,9 +175,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             icon: const Icon(Icons.tune, size: 20),
           ),
         ],
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(30),
-          child: _StatusBar(),
+        bottom: PreferredSize(
+          // 글자 배율을 태운다. 30으로 고정하면 배율이 커졌을 때 기준 시각이
+          // 잘려 "오프라인 (저장된 데이…"가 된다 — 잘린 경고는 경고가 아니다.
+          preferredSize: Size.fromHeight(
+            MediaQuery.textScalerOf(context).scale(30),
+          ),
+          child: const _StatusBar(),
         ),
       ),
       body: IndexedStack(index: _tab, children: const [MapPage(), ListPage()]),
@@ -205,6 +227,7 @@ class _StatusBar extends ConsumerWidget {
             child: Text(
               text,
               style: TextStyle(fontSize: 11.5, color: color),
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ),

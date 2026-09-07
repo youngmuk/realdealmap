@@ -54,6 +54,13 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// 위치를 잡았다고 보던 화면을 빼앗지 않는다.
   bool _placeOnFirstRegion = false;
 
+  /// 처음 놓인 카메라 자리. 여기서 움직이기 전까지는 **지역을 추측하지 않는다**.
+  ///
+  /// 지역 판정은 카메라 중심이 어느 시군구에 드는지로 하는데, 첫 진입의 기본
+  /// 좌표는 강남이다. 그대로 두면 부산에 있는 사용자에게도 강남구가 열린다 —
+  /// 실거래가는 그 오해가 값비싼 데이터다.
+  ml.LatLng? _initialTarget;
+
   @override
   void initState() {
     super.initState();
@@ -181,6 +188,13 @@ class _MapPageState extends ConsumerState<MapPage> {
     if (controller == null || !mounted) return;
 
     final camera = controller.cameraPosition;
+    // 아직 아무도 지도를 건드리지 않았고 지역도 정해지지 않았다면, 기본 좌표가
+    // 어디를 가리키든 그것은 사용자의 위치가 아니다. 위치나 직접 선택을 기다린다.
+    if (ref.read(selectedRegionProvider) == null &&
+        camera != null &&
+        _isInitialTarget(camera.target)) {
+      return;
+    }
     if (camera != null) {
       ref
           .read(lastCameraProvider.notifier)
@@ -206,6 +220,17 @@ class _MapPageState extends ConsumerState<MapPage> {
 
     ref.read(selectedRegionProvider.notifier).select(region.sggCd);
     unawaited(ref.read(syncProvider.notifier).syncRegion(region.sggCd));
+  }
+
+  /// 카메라가 처음 놓인 자리에서 사실상 그대로인가.
+  ///
+  /// 지도는 미세하게 흔들리므로 정확히 같기를 요구하면 안 된다. 사람이 밀면
+  /// 이보다 훨씬 크게 움직인다.
+  bool _isInitialTarget(ml.LatLng target) {
+    final start = _initialTarget;
+    if (start == null) return false;
+    return (target.latitude - start.latitude).abs() < 0.0005 &&
+        (target.longitude - start.longitude).abs() < 0.0005;
   }
 
   /// 화면에 보이는 사각형 안의 거래를 다시 뽑아 묶고 소스에 넣는다.
@@ -370,6 +395,10 @@ class _MapPageState extends ConsumerState<MapPage> {
 
     final camera = ref.read(lastCameraProvider);
     final style = ref.read(configProvider).resolvedMapStyle;
+    _initialTarget ??= ml.LatLng(
+      camera?.lat ?? 37.4979,
+      camera?.lng ?? 127.0276,
+    );
 
     return Stack(
       children: [
