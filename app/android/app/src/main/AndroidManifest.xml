@@ -1,4 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 인터넷: R2에서 데이터를 받는다 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!--
+      대략 위치만 받는다. 첫 진입에서 시군구 하나를 고르는 데만 쓰고, 좌표는
+      기기 밖으로 나가지 않는다 (앱 안에 이미 있는 지역 색인에서 고른다).
+      시군구를 고르는 데 미터 단위 정확도는 아무 값어치가 없으므로 정밀 위치는
+      요구하지 않는다 — 필요 없는 권한을 받는 것은 그 자체로 비용이다.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <application
         android:label="realdealmap"
         android:name="${applicationName}"

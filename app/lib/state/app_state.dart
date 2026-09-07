@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
 import '../data/db/database.dart';
+import '../data/location.dart';
 import '../data/sync/refresh_trigger.dart';
 import '../data/sync/region_index.dart';
 import '../data/sync/remote.dart';
@@ -33,6 +34,10 @@ final remoteProvider = Provider<RemoteSource>(
 
 final syncEngineProvider = Provider<SyncEngine>(
   (ref) => SyncEngine(ref.watch(databaseProvider), ref.watch(remoteProvider)),
+);
+
+final locationProvider = Provider<LocationSource>(
+  (ref) => const GeolocatorLocation(),
 );
 
 final refreshTriggerProvider = Provider<RefreshTrigger>(

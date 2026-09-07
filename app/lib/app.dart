@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'data/location.dart';
 import 'data/sync/refresh_trigger.dart';
+import 'data/sync/region_index.dart';
 import 'data/sync/sync_engine.dart';
 import 'format.dart';
 import 'features/filter/filter_sheet.dart';
@@ -54,16 +56,62 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
 
-  /// 마지막으로 보던 지역을 되살린다 (FR-1).
+  /// 마지막으로 보던 지역을 되살리고, 없으면 **지금 있는 곳**을 연다 (FR-1 · T5.9).
   ///
-  /// 없으면 아무 지역도 고르지 않는다. **임의로 서울을 열어 주지 않는다** —
+  /// 위치를 못 얻으면 아무 지역도 고르지 않는다. **임의로 서울을 열어 주지 않는다** —
   /// 사용자가 자기 동네라고 오해할 수 있고, 실거래가는 그 오해가 값비싼 데이터다.
   Future<void> _bootstrap() async {
     final saved = ref.read(selectedRegionProvider);
     if (saved != null) {
       await ref.read(syncProvider.notifier).syncRegion(saved);
+      await ref.read(regionIndexProvider.notifier).reload();
+      return;
     }
+
+    // 색인이 먼저다. 좌표를 시군구로 푸는 근거가 색인이라, 없으면 위치를 받아도
+    // 쓸 데가 없다.
     await ref.read(regionIndexProvider.notifier).reload();
+    if (!mounted) return;
+    await _openHere();
+  }
+
+  /// 지금 있는 곳의 시군구를 연다.
+  ///
+  /// 담는 지역이 없으면 가장 가까운 곳으로 간다. 배포되지 않은 지역에 있는
+  /// 사용자에게 빈 화면을 주는 것보다, 가까운 데이터를 보여주고 지역 이름을
+  /// 밝히는 편이 낫다.
+  Future<void> _openHere() async {
+    final (outcome, fix) = await ref.read(locationProvider).current();
+    if (!mounted || fix == null) {
+      if (mounted && outcome != LocationOutcome.ok) _sayWhyNoLocation(outcome);
+      return;
+    }
+
+    final index = ref.read(regionIndexProvider).value;
+    final point = LatLng(fix.lat, fix.lng);
+    final region = index?.at(point) ?? index?.nearest(point);
+    if (region == null || !mounted) return;
+
+    ref.read(selectedRegionProvider.notifier).select(region.sggCd);
+    unawaited(ref.read(syncProvider.notifier).syncRegion(region.sggCd));
+  }
+
+  /// 왜 위치로 열지 못했는지 한 줄로 말한다.
+  ///
+  /// 조용히 넘어가면 사용자는 앱이 자기 동네를 못 찾은 이유를 알 수 없고,
+  /// 무엇을 하면 되는지도 모른다.
+  void _sayWhyNoLocation(LocationOutcome outcome) {
+    final message = switch (outcome) {
+      LocationOutcome.denied => '위치 권한이 없어 지역을 직접 고르셔야 합니다.',
+      LocationOutcome.deniedForever => '위치 권한이 꺼져 있습니다. 설정에서 켜거나 지역을 직접 고르세요.',
+      LocationOutcome.disabled => '기기의 위치 기능이 꺼져 있습니다. 지역을 직접 고르세요.',
+      LocationOutcome.failed => '현재 위치를 확인하지 못했습니다. 지역을 직접 고르세요.',
+      LocationOutcome.ok => '',
+    };
+    if (message.isEmpty) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _pickRegion() async {

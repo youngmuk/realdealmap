@@ -50,6 +50,16 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// 이미 스타일에 올린 아이콘 이름. 없으면 화면을 옮길 때마다 다시 그린다.
   final _icons = <String>{};
 
+  /// 저장된 카메라가 없던 첫 진입인가. 있으면 사용자가 보던 자리를 지킨다 —
+  /// 위치를 잡았다고 보던 화면을 빼앗지 않는다.
+  bool _placeOnFirstRegion = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _placeOnFirstRegion = ref.read(lastCameraProvider) == null;
+  }
+
   @override
   void dispose() {
     _regionDebounce?.cancel();
@@ -332,6 +342,28 @@ class _MapPageState extends ConsumerState<MapPage> {
     // 첫 진입에서는 카메라가 이미 멈춘 뒤에 데이터가 들어온다. 그러면 동기화가
     // 성공하고 기준 시각까지 뜨는데 **마커만 0건**이다 — 사용자는 데이터가
     // 없다고 읽지, 화면이 안 갱신됐다고 읽지 않는다.
+    // 첫 진입에서 위치로 지역이 정해지면 그쪽으로 옮긴다.
+    //
+    // 딱 한 번만 한다. 지도를 움직이면 지역 판정이 다시 돌고, 그때마다 카메라를
+    // 옮기면 **사용자가 지도를 끌 수 없게 된다** — 미는 족족 되돌아온다.
+    ref.listen(selectedRegionProvider, (previous, next) {
+      if (!_placeOnFirstRegion || previous != null || next == null) return;
+      _placeOnFirstRegion = false;
+      final center = ref.read(regionIndexProvider).value?.byCode(next)?.center;
+      final controller = _controller;
+      // 좌표가 하나도 안 붙은 지역은 중심점이 없다. 그런 곳으로 옮기면 바다
+      // 한가운데를 보여주게 되므로 그냥 있던 자리에 둔다.
+      if (center == null || controller == null) return;
+      unawaited(
+        controller.animateCamera(
+          ml.CameraUpdate.newLatLngZoom(
+            ml.LatLng(center.lat, center.lng),
+            13.5,
+          ),
+        ),
+      );
+    });
+
     ref.listen(syncProvider, (before, after) {
       if (before?.running == true && !after.running) unawaited(_syncViewport());
     });
