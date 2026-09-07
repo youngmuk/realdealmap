@@ -152,8 +152,13 @@ class FilterController extends Notifier<TxFilter> {
   void toggleDataset(String key) => state = state.toggleDataset(key);
   void toggleProperty(String property) =>
       state = state.toggleProperty(property);
+  void toggleTrade(String trade) => state = state.toggleTrade(trade);
   void setCancelled(bool include) =>
       state = state.copyWith(includeCancelled: include);
+  void toggleMonth(String month, List<String> available) =>
+      state = state.toggleMonth(month, available);
+  void setAmountRange({int? min, int? max}) =>
+      state = state.withAmountRange(min: min, max: max);
 }
 
 final filterProvider = NotifierProvider<FilterController, TxFilter>(

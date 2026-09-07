@@ -119,6 +119,9 @@ class AppDatabase extends _$AppDatabase {
     required double east,
     Set<String>? datasetKeys,
     bool includeCancelled = true,
+    int? minAmount,
+    int? maxAmount,
+    Set<String>? months,
     int limit = 5000,
   }) async {
     final filters = <String>[];
@@ -135,6 +138,21 @@ class AppDatabase extends _$AppDatabase {
       vars.addAll(datasetKeys.map(Variable<String>.new));
     }
     if (!includeCancelled) filters.add('AND t.cancelled = 0');
+    if (months != null && months.isNotEmpty) {
+      final holes = List.filled(months.length, '?').join(',');
+      filters.add('AND t.period IN ($holes)');
+      vars.addAll(months.map(Variable<String>.new));
+    }
+    // 매매는 amount, 전월세는 deposit에 값이 있다. 목록 조회와 같은 규칙이라야
+    // **목록에는 있는데 지도에 없는** 거래가 좌표 탓임이 분명해진다.
+    if (minAmount != null) {
+      filters.add('AND (t.amount >= ? OR t.deposit >= ?)');
+      vars.addAll([Variable<int>(minAmount), Variable<int>(minAmount)]);
+    }
+    if (maxAmount != null) {
+      filters.add('AND (t.amount <= ? OR t.deposit <= ?)');
+      vars.addAll([Variable<int>(maxAmount), Variable<int>(maxAmount)]);
+    }
     vars.add(Variable<int>(limit));
 
     final rows = await customSelect(
@@ -166,6 +184,20 @@ class AppDatabase extends _$AppDatabase {
           ),
         )
         .toList();
+  }
+
+  /// 이 지역에 실제로 들어 있는 계약 연월 (`YYYYMM`), 최신순.
+  ///
+  /// **달력에서 고르게 하지 않는다.** 데이터가 없는 달을 고를 수 있으면 사용자는
+  /// 빈 화면을 보고 앱이 고장 났다고 읽는다. 있는 달만 보여준다.
+  Future<List<String>> availableMonths(String sggCd) async {
+    final rows = await customSelect(
+      'SELECT DISTINCT period FROM tx_rows WHERE sgg_cd = ? '
+      'ORDER BY period DESC',
+      variables: [Variable<String>(sggCd)],
+      readsFrom: {txRows},
+    ).get();
+    return rows.map((r) => r.read<String>('period')).toList();
   }
 
   /// 좌표가 없어 지도에 못 그리는 건수. 목록 탭의 "지도 미표시 N건" 배지가 쓴다(FR-2).

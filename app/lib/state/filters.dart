@@ -90,17 +90,80 @@ class TxFilter {
     return copyWith(datasetKeys: next);
   }
 
-  /// 매물 유형 하나(아파트 등)의 매매·전월세를 한꺼번에 켜고 끈다.
-  TxFilter toggleProperty(String property) {
-    final keys = kDatasetKeys.where((k) => k.startsWith('$property/'));
-    final allOn = keys.every(datasetKeys.contains);
-    final next = Set<String>.from(datasetKeys);
-    if (allOn) {
-      next.removeAll(keys);
-    } else {
-      next.addAll(keys);
+  /// 계약 연월 하나를 켜고 끈다.
+  ///
+  /// 비어 있는 상태가 "전부"라, 마지막 하나를 끄면 전부가 켜진 것처럼 보인다.
+  /// 그래서 **끄는 대신 그것만 남긴다** — 전부 켜진 상태에서 한 달을 누르면
+  /// 그 달만 보겠다는 뜻이지, 그 달을 빼겠다는 뜻이 아니다.
+  TxFilter toggleMonth(String month, List<String> available) {
+    if (months.isEmpty) return copyWith(months: {month});
+    final next = Set<String>.from(months);
+    if (!next.remove(month)) next.add(month);
+    // 있는 달을 전부 고른 것은 아무것도 안 고른 것과 같다. 같은 뜻은 한 값으로 둔다
+    if (next.isEmpty || next.length == available.length) {
+      return copyWith(months: const {});
     }
-    return copyWith(datasetKeys: next);
+    return copyWith(months: next);
+  }
+
+  TxFilter withAmountRange({int? min, int? max}) =>
+      copyWith(minAmount: min, maxAmount: max);
+
+  /// 화면은 9종을 늘어놓지 않고 **매물 유형 × 거래 종류**로 나눠 고르게 한다.
+  /// 9줄이 5줄+2줄이 되고, 사람이 실제로 생각하는 단위와도 맞는다.
+  ///
+  /// 저장은 그대로 9종 집합이다. 두 축을 따로 저장하면 "아파트 매매만"처럼
+  /// 곱집합으로 표현되지 않는 조합을 담을 수 없게 된다.
+  Set<String> get selectedProperties => datasetKeys.isEmpty
+      ? kPropertyLabels.keys.toSet()
+      : {for (final k in datasetKeys) k.split('/').first};
+
+  Set<String> get selectedTrades => datasetKeys.isEmpty
+      ? kTradeLabels.keys.toSet()
+      : {for (final k in datasetKeys) k.split('/').last};
+
+  TxFilter withTypes({Set<String>? properties, Set<String>? trades}) {
+    final p = properties ?? selectedProperties;
+    final t = trades ?? selectedTrades;
+    final keys = kDatasetKeys
+        .where(
+          (k) =>
+              p.contains(k.split('/').first) && t.contains(k.split('/').last),
+        )
+        .toSet();
+    // **하나도 안 남는 조합은 받지 않는다.** 빈 집합은 "전부"라는 뜻이라,
+    // 그대로 넣으면 전부 끈 사용자에게 전부가 보인다. 토지×전월세처럼
+    // 존재하지 않는 조합도 여기서 걸린다.
+    if (keys.isEmpty) return this;
+    return copyWith(
+      datasetKeys: keys.length == kDatasetKeys.length ? const {} : keys,
+    );
+  }
+
+  /// 지금 고른 거래 종류로 **고를 수 있는** 매물 유형.
+  ///
+  /// 토지는 전월세가 없다. 전월세만 켠 상태에서 토지 칩을 누를 수 있게 두면
+  /// 눌러도 아무 일이 없어 고장으로 읽힌다 — 아예 못 누르게 하고 이유를 밝힌다.
+  Set<String> get availableProperties => {
+    for (final k in kDatasetKeys)
+      if (selectedTrades.contains(k.split('/').last)) k.split('/').first,
+  };
+
+  Set<String> get availableTrades => {
+    for (final k in kDatasetKeys)
+      if (selectedProperties.contains(k.split('/').first)) k.split('/').last,
+  };
+
+  TxFilter toggleProperty(String property) =>
+      withTypes(properties: _flip(selectedProperties, property));
+
+  TxFilter toggleTrade(String trade) =>
+      withTypes(trades: _flip(selectedTrades, trade));
+
+  Set<String> _flip(Set<String> from, String value) {
+    final next = Set<String>.from(from);
+    if (!next.remove(value)) next.add(value);
+    return next;
   }
 
   @override

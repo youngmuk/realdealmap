@@ -111,21 +111,6 @@ void main() {
       expect(on.toggleDataset('apartment/sale').datasetKeys, isEmpty);
     });
 
-    test('매물 유형은 매매·전월세를 함께 켠다', () {
-      final on = const TxFilter().toggleProperty('apartment');
-      expect(on.datasetKeys, {'apartment/sale', 'apartment/rent'});
-      expect(on.toggleProperty('apartment').datasetKeys, isEmpty);
-    });
-
-    // 하나만 켜져 있을 때 다시 누르면 나머지도 켜져야 한다. 안 그러면 토글이 멈춘다.
-    test('일부만 켜져 있으면 나머지를 켠다', () {
-      final half = const TxFilter().toggleDataset('apartment/sale');
-      expect(half.toggleProperty('apartment').datasetKeys, {
-        'apartment/sale',
-        'apartment/rent',
-      });
-    });
-
     test('같은 내용이면 같은 필터다', () {
       expect(
         const TxFilter(datasetKeys: {'a', 'b'}),

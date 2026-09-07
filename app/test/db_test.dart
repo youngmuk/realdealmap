@@ -48,6 +48,67 @@ void main() {
     includeCancelled: cancelled,
   )).map((p) => p.txId).toList();
 
+  group('지도 필터', () {
+    // 지도와 목록이 같은 규칙을 써야 "목록에는 있는데 지도에 없다"가
+    // 좌표 탓임이 분명해진다.
+    test('연월로 거른다', () async {
+      await db.into(db.txRows).insert(tx('a', lat: 37.5, lng: 127.0));
+      await db
+          .into(db.txRows)
+          .insert(tx('b', lat: 37.5, lng: 127.0, period: '202606'));
+
+      final pins = await db.pinsInBounds(
+        south: 37.4,
+        north: 37.6,
+        west: 126.9,
+        east: 127.1,
+        months: {'202606'},
+      );
+
+      expect(pins.map((p) => p.txId), ['b']);
+    });
+
+    test('전월세는 보증금으로 걸린다', () async {
+      await db
+          .into(db.txRows)
+          .insert(
+            tx(
+              'rent',
+              lat: 37.5,
+              lng: 127.0,
+              datasetKey: 'apartment/rent',
+            ).copyWith(deposit: const Value(20000)),
+          );
+      await db
+          .into(db.txRows)
+          .insert(
+            tx(
+              'sale',
+              lat: 37.5,
+              lng: 127.0,
+            ).copyWith(amount: const Value(150000)),
+          );
+
+      final cheap = await db.pinsInBounds(
+        south: 37.4,
+        north: 37.6,
+        west: 126.9,
+        east: 127.1,
+        maxAmount: 50000,
+      );
+
+      expect(cheap.map((p) => p.txId), ['rent']);
+    });
+
+    test('있는 연월만 돌려준다', () async {
+      await db.into(db.txRows).insert(tx('a', lat: 37.5, lng: 127.0));
+      await db.into(db.txRows).insert(tx('b', period: '202606'));
+      await db.into(db.txRows).insert(tx('c', period: '202606'));
+
+      expect(await db.availableMonths('11680'), ['202608', '202606']);
+    });
+  });
+
   group('공간 색인', () {
     test('사각형 안의 것만 나온다', () async {
       await db.into(db.txRows).insert(tx('a', lat: 37.50, lng: 127.03));

@@ -6,11 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'data/sync/refresh_trigger.dart';
 import 'data/sync/sync_engine.dart';
 import 'format.dart';
+import 'features/filter/filter_sheet.dart';
 import 'features/list/list_page.dart';
 import 'features/map/map_page.dart';
 import 'features/region/region_picker.dart';
 import 'state/app_state.dart';
-import 'state/filters.dart';
 import 'theme.dart';
 
 class RealDealMapApp extends StatelessWidget {
@@ -105,7 +105,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         actions: [
           IconButton(
             tooltip: '필터',
-            onPressed: () => _FilterSheet.show(context),
+            onPressed: () => FilterSheet.show(context),
             icon: const Icon(Icons.tune, size: 20),
           ),
         ],
@@ -183,73 +183,5 @@ class _StatusBar extends ConsumerWidget {
       ),
       _ => (base, Palette.ink3),
     };
-  }
-}
-
-class _FilterSheet extends ConsumerWidget {
-  const _FilterSheet();
-
-  static Future<void> show(BuildContext context) => showModalBottomSheet(
-    context: context,
-    backgroundColor: Palette.paper,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
-    builder: (_) => const _FilterSheet(),
-  );
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final filter = ref.watch(filterProvider);
-    final notifier = ref.read(filterProvider.notifier);
-
-    // 글자 배율이 커지면 내용이 화면을 넘는다. 넘치면 스크롤한다 —
-    // 잘려서 안 보이는 설정은 없는 설정과 같다.
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Text('필터', style: Theme.of(context).textTheme.labelSmall),
-              const Spacer(),
-              if (!filter.isEmpty)
-                TextButton(onPressed: notifier.clear, child: const Text('초기화')),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final key in kDatasetKeys)
-                FilterChip(
-                  label: Text(datasetLabel(key)),
-                  // 비어 있으면 전부다. 하나도 안 고른 상태를 "전부"로 보여준다.
-                  selected:
-                      filter.datasetKeys.isEmpty ||
-                      filter.datasetKeys.contains(key),
-                  onSelected: (_) => notifier.toggleDataset(key),
-                  selectedColor: Palette.accentSoft,
-                  checkmarkColor: Palette.accent,
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            value: filter.includeCancelled,
-            onChanged: notifier.setCancelled,
-            title: const Text('해제된 거래 포함', style: TextStyle(fontSize: 14)),
-            subtitle: const Text(
-              '해제도 사실입니다. 감추면 "왜 그 거래가 안 보이지"가 됩니다.',
-              style: TextStyle(fontSize: 11.5, color: Palette.ink3),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

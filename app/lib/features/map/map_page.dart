@@ -223,6 +223,9 @@ class _MapPageState extends ConsumerState<MapPage> {
           east: bounds.northeast.longitude + padLng,
           datasetKeys: filter.datasetKeysOrNull,
           includeCancelled: filter.includeCancelled,
+          minAmount: filter.minAmount,
+          maxAmount: filter.maxAmount,
+          months: filter.months,
         );
 
     if (!mounted) return;
