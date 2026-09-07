@@ -29,10 +29,15 @@ import {
   normalizeAll,
   publishRegion,
   readDictionary,
+  readIndex,
   recentPeriods,
   R2Client,
+  sameSummary,
+  summarize as summarizeRegion,
   withEntries,
+  withRegion,
   writeDictionary,
+  writeIndex,
 } from '../dist/index.js';
 
 import { loadEnv } from './env.mjs';
@@ -115,6 +120,36 @@ const summarize = (markdown) => {
   if (!path) return;
   appendFileSync(path, `${markdown}
 `, 'utf8');
+};
+
+
+/**
+ * 지역 색인을 갱신한다.
+ *
+ * 앱은 경계 폴리곤이 없어서 이 파일로 "지금 보는 자리가 어느 시군구인가"를 푼다.
+ * 좌표가 실린 거래에서 경계상자를 뽑으므로 별도 데이터가 필요 없다.
+ *
+ * **읽고-고쳐-쓰기라 서로 다른 두 지역이 동시에 배포되면 한쪽이 덮일 수 있다.**
+ * 지역별 concurrency 그룹은 같은 지역만 막는다. 다만 피해가 한 시간짜리다 —
+ * 덮인 지역은 다음 갱신에서 자기 항목을 다시 넣는다. 매 배포마다 전체를 다시
+ * 만드는 비용(지역 수만큼의 GET)보다 이쪽이 싸다.
+ */
+const updateIndex = async (r2, sggCd, chunks, refreshedAt) => {
+  const region = findRegion(sggCd);
+  if (!region) throw new Error(`시군구 코드를 카탈로그에서 찾을 수 없습니다: ${sggCd}`);
+
+  const summary = summarizeRegion(sggCd, region, chunks, refreshedAt);
+  const index = await readIndex(r2);
+  if (sameSummary(index.regions.find((r) => r.sggCd === sggCd), summary)) {
+    console.log('  색인 그대로');
+    return;
+  }
+
+  await writeIndex(r2, withRegion(index, summary, new Date()));
+  const box = summary.bbox
+    ? `(${summary.bbox.south}~${summary.bbox.north}, ${summary.bbox.west}~${summary.bbox.east})`
+    : '(좌표 없음)';
+  console.log(`  색인 갱신 — 좌표 ${summary.located}/${summary.records}건 ${box}`);
 };
 
 const main = async () => {
@@ -227,6 +262,7 @@ const main = async () => {
   console.log(`  총 ${result.totalRecords}건 · 파일 ${result.manifest.files.length}개`);
 
   if (!dryRun) {
+    await updateIndex(r2, resolved, chunks, result.manifest.refreshedAt);
     const obsolete = await findObsoleteChunks(r2, resolved, result.manifest);
     if (obsolete.length > 0) {
       console.log(`  낡은 청크 ${obsolete.length}건 (삭제하지 않음 — 보관 기간 후 별도 정리)`);
