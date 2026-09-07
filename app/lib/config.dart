@@ -5,6 +5,20 @@
 /// 앱에 넣지 않는다. 배포된 앱에서 값을 빼내는 것은 막을 수 없기 때문이다.
 library;
 
+/// 설정에서 빠진 것. 각각이 **출시를 막아야 하는** 사유다.
+enum ConfigIssue {
+  /// 데이터 주소가 없다. 어떤 지역도 받을 수 없다
+  noData('데이터 주소가 없는 빌드입니다 (DATA_BASE_URL)'),
+
+  /// VWorld 키가 없어 OSM으로 그린다.
+  /// OSM 타일 서버의 이용 정책은 앱 트래픽을 허용하지 않는다 — 기능 문제가 아니라
+  /// 남의 서버를 규정 밖으로 쓰는 문제라서, 안 보이면 그대로 출시된다.
+  fallbackTiles('배경지도가 OSM 폴백입니다 (VWORLD_KEY)');
+
+  const ConfigIssue(this.message);
+  final String message;
+}
+
 class AppConfig {
   const AppConfig({
     required this.dataBaseUrl,
@@ -36,6 +50,21 @@ class AppConfig {
   );
 
   bool get hasData => dataBaseUrl.isNotEmpty;
+
+  /// 이 빌드에서 빠진 것.
+  ///
+  /// 값을 빠뜨린 빌드는 **멀쩡해 보인다** — 지도는 OSM 폴백으로 그려지고 데이터만
+  /// 조용히 비어 있어서, 화면만 봐서는 "아직 안 받았나 보다"와 구별되지 않는다.
+  /// 실제로 그렇게 만든 릴리스 APK를 손에 쥐고도 지역 목록을 열어 보고서야 알았다.
+  /// 그래서 빠진 것에 이름을 붙여 밖으로 낸다. 조용한 실패를 시끄럽게 만드는 것이
+  /// 여기서 하는 일의 전부다.
+  List<ConfigIssue> get issues => [
+    if (!hasData) ConfigIssue.noData,
+    if (mapStyle.isEmpty && vworldKey.isEmpty) ConfigIssue.fallbackTiles,
+  ];
+
+  /// 스토어에 올려도 되는 빌드인가.
+  bool get isReleasable => issues.isEmpty;
 
   /// VWorld 배경지도 키.
   ///

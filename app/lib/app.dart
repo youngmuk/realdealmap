@@ -211,8 +211,15 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           // 잘려 "오프라인 (저장된 데이…"가 된다 — 잘린 경고는 경고가 아니다.
           //
           // 기준 시각 두 줄(30)에 참고용 고지 한 줄을 더한다 (T6.6 · G6).
+          // 설정이 빠진 빌드에서는 경고 줄이 하나 더 붙는다 — 자리를 안 주면
+          // 넘쳐서 잘리고, 잘린 경고는 다시 경고가 아니게 된다.
           preferredSize: Size.fromHeight(
-            MediaQuery.textScalerOf(context).scale(30 + kAboutBannerHeight),
+            MediaQuery.textScalerOf(context).scale(
+              30 +
+                  kAboutBannerHeight +
+                  ref.watch(configProvider).issues.length *
+                      (kConfigWarningHeight + 2),
+            ),
           ),
           child: const _StatusBar(),
         ),
@@ -245,6 +252,63 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 ///
 /// 여기에 둔 이유는 **지도와 목록 두 탭 모두에서 항상 보이는 유일한 자리**라서다.
 /// 지도 범례에 두면 목록 탭에서 사라지고, 그때 고지는 상시가 아니게 된다.
+/// 빠진 설정을 화면에 대고 말한다.
+///
+/// 이 자리는 개발자에게 하는 말이지 사용자에게 하는 말이 아니다. 그래도 앱 안에
+/// 두는 이유는, 빌드 스크립트는 우회할 수 있어도 첫 화면은 우회할 수 없기 때문이다.
+/// 값을 빠뜨린 빌드를 스토어에 올리려면 이것을 보고도 올려야 한다.
+/// 경고 한 줄이 차지하는 높이. 상태바가 내주는 예산이 이 값을 사유 수만큼 잡는다.
+const double kConfigWarningHeight = 20;
+
+/// 빠진 설정을 화면에 대고 말한다.
+///
+/// 이 자리는 개발자에게 하는 말이지 사용자에게 하는 말이 아니다. 그래도 앱 안에
+/// 두는 이유는, 빌드 스크립트는 우회할 수 있어도 첫 화면은 우회할 수 없기 때문이다.
+/// 값을 빠뜨린 빌드를 스토어에 올리려면 이것을 보고도 올려야 한다.
+///
+/// 사유마다 한 줄씩 준다. 이어 붙이면 좁은 화면에서 줄이 접히고, 접힌 만큼
+/// 상태바 예산을 넘겨 잘린다 — 잘린 경고는 다시 경고가 아니다 (고지 배너와 같다).
+class ConfigWarning extends ConsumerWidget {
+  const ConfigWarning({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final issues = ref.watch(configProvider).issues;
+    if (issues.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final issue in issues)
+          Container(
+            height: MediaQuery.textScalerOf(context).scale(kConfigWarningHeight),
+            margin: const EdgeInsets.only(top: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 7),
+            alignment: Alignment.centerLeft,
+            decoration: BoxDecoration(
+              color: Palette.danger,
+              borderRadius: BorderRadius.circular(3),
+            ),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '출시 불가 · ${issue.message}',
+                maxLines: 1,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _StatusBar extends ConsumerWidget {
   const _StatusBar();
 
@@ -280,6 +344,7 @@ class _StatusBar extends ConsumerWidget {
             ],
           ),
           const AboutBanner(),
+          const ConfigWarning(),
         ],
       ),
     );
