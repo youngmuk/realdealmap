@@ -47,6 +47,31 @@ describe('식별키', () => {
     expect(contentHash(withField(tx, 'amount', 999999))).not.toBe(contentHash(tx));
   });
 
+  // T1.5 실측: 원천이 같은 건물을 두 가지로 적는다. 한 스냅샷 안에서만도 23건이었다.
+  // 이름이 식별에 참여하면 표기가 흔들릴 때 같은 거래가 removed+added로 보이고,
+  // 하필 removed는 R-14 탐지 신호다.
+  test.each([
+    ['쌍용플레티넘밸류', '쌍용플래티넘밸류'],
+    ['우성캐릭터빌', '우성캐릭터-빌'],
+    ['이지마루역삼', '이지마루 역삼'],
+    ['LG선릉에클라트(B)', 'LG선릉에클라트B'],
+  ])('건물명이 %s → %s 로 바뀌어도 같은 거래다', (before, after) => {
+    const tx = first('apartment/sale');
+    expect(identityHash(withField(tx, 'name', after))).toBe(
+      identityHash(withField(tx, 'name', before)),
+    );
+  });
+
+  test('표기가 바뀌어도 removed로 오인하지 않는다', () => {
+    const tx = first('apartment/sale');
+    const renamed = withField(tx, 'name', '쌍용플래티넘밸류');
+    const diff = diffSnapshots([withField(tx, 'name', '쌍용플레티넘밸류')], [renamed]);
+
+    expect(diff.removed).toEqual([]);
+    expect(diff.added).toEqual([]);
+    expect(diff.unchangedCount).toBe(1);
+  });
+
   test('해제 상태는 내용에 들어간다', () => {
     const tx = first('apartment/sale');
     expect(contentHash(withField(tx, 'cancelled', true))).not.toBe(contentHash(tx));

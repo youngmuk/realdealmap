@@ -35,6 +35,16 @@ const ordinal = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
  *
  * 단독다가구 전월세는 지번도 건물명도 없으므로(§3.1) 쓸 수 있는 항목이 다르다.
  * 유형마다 다른 키를 쓰지 않으면 이 유형 전체가 한 덩어리로 뭉친다.
+ *
+ * **건물명(`name`)은 쓰지 않는다.** 원천의 표기가 흔들리기 때문이다 — T1.5에서
+ * 한 스냅샷 안에서만도 같은 주소에 두 가지 이름이 붙은 사례를 23건 확인했다
+ * (`쌍용플레티넘밸류`/`쌍용플래티넘밸류` 같은 원천 오타, `우성캐릭터빌`/`우성캐릭터-빌`).
+ * 갱신 사이에 표기가 바뀌면 같은 거래가 `removed`+`added`로 보이고,
+ * 하필 `removed`는 R-14 탐지 신호다. 정규화로는 오타를 못 잡는다.
+ *
+ * 이름을 빼면 같은 지번·면적·층·건축년도의 서로 다른 건물이 한 식별키로 묶일 수 있다.
+ * 그래도 `indexSnapshot`의 발생순번이 둘 다 보존하므로 데이터가 사라지지는 않는다.
+ * **불안정한 구분보다 안정적인 병합이 낫다** — 금액을 식별키에서 뺀 것과 같은 판단이다.
  */
 export const identityParts = (tx: Transaction): readonly string[] => {
   const common = [tx.datasetKey, tx.sggCd, tx.umdNm, tx.contractedOn];
@@ -46,7 +56,6 @@ export const identityParts = (tx: Transaction): readonly string[] => {
   return [
     ...common,
     tx.jibun ?? '',
-    tx.name ?? '',
     String(tx.areaSqm),
     String(tx.floor),
     String(tx.builtYear),
