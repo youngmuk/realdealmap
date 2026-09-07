@@ -102,7 +102,7 @@ class _UnmappedBanner extends StatelessWidget {
         border: const Border(left: BorderSide(color: Palette.warn, width: 3)),
       ),
       child: Text(
-        '지도 미표시 $count건 — 원천이 지번을 공개하지 않아 좌표를 만들 수 없는 '
+        '지도 미표시 ${formatCount(count)}건 — 원천이 지번을 공개하지 않아 좌표를 만들 수 없는 '
         '거래입니다. 목록에는 전부 있습니다.',
         style: const TextStyle(
           fontSize: 12.5,
