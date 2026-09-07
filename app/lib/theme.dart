@@ -95,7 +95,14 @@ ThemeData buildTheme() {
             letterSpacing: -0.2,
             color: Palette.ink,
           ),
-          bodyMedium: const TextStyle(fontSize: 14, height: 1.5),
+          // 색을 여기서도 빼먹으면 안 된다. 위 주석과 같은 함정이고, 실제로
+          // 목록의 단지 이름이 배경과 구별되지 않을 만큼 옅게 나왔다.
+          // 본문 기본값이라 색을 지정하지 않은 글자가 전부 여기로 떨어진다.
+          bodyMedium: const TextStyle(
+            fontSize: 14,
+            height: 1.5,
+            color: Palette.ink,
+          ),
           labelSmall: const TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w700,

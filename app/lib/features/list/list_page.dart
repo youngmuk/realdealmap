@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/db/database.dart';
 import '../../format.dart';
+import '../../state/ads.dart';
 import '../../state/app_state.dart';
 import '../../state/filters.dart';
 import '../../theme.dart';
+import '../ads/ad_policy.dart';
 import '../detail/detail_sheet.dart';
 
 /// 목록 탭 (T5.7 · FR-2).
@@ -47,7 +49,12 @@ class ListPage extends ConsumerWidget {
           separatorBuilder: (_, _) => const Divider(height: 1, indent: 16),
           itemBuilder: (context, i) {
             if (i == 0) return _UnmappedBanner(count: unmapped);
-            return _Tile(rows[i - 1]);
+            return _Tile(
+              rows[i - 1],
+              // 상세를 닫은 직후가 안전 전환 지점이다 (FR-6). ref는 여기에만
+              // 있으므로 타일이 아니라 목록이 알린다.
+              onClosed: () => ref.adMoment(AdMoment.detailClosed),
+            );
           },
         );
       },
@@ -105,8 +112,9 @@ class _UnmappedBanner extends StatelessWidget {
 }
 
 class _Tile extends StatelessWidget {
-  const _Tile(this.tx);
+  const _Tile(this.tx, {required this.onClosed});
   final TxRow tx;
+  final VoidCallback onClosed;
 
   @override
   Widget build(BuildContext context) {
@@ -121,7 +129,10 @@ class _Tile extends StatelessWidget {
     ];
 
     return InkWell(
-      onTap: () => DetailSheet.show(context, tx),
+      onTap: () async {
+        await DetailSheet.show(context, tx);
+        onClosed();
+      },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
@@ -134,6 +145,11 @@ class _Tile extends StatelessWidget {
               color: colorOfDataset(tx.datasetKey),
             ),
             Expanded(
+              // 이름 · 가격 · 부가정보를 **세로로** 쌓는다.
+              //
+              // 가격을 오른쪽에 두면 글자 배율 2배에서 "2억 5,000만원 / 145만원"이
+              // 폭의 대부분을 가져가고, 남은 자리에서 부가정보가 한 글자씩
+              // 세로로 접힌다. 좌우 배치는 작은 글자를 전제로만 성립한다.
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -165,23 +181,26 @@ class _Tile extends StatelessWidget {
                         ),
                     ],
                   ),
+                  const SizedBox(height: 3),
+                  // 실거래가는 값이 주인공이다. 줄을 통째로 내준다.
+                  Text(
+                    price,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                      color: tx.cancelled ? Palette.ink3 : Palette.ink,
+                      decoration: tx.cancelled
+                          ? TextDecoration.lineThrough
+                          : null,
+                    ),
+                  ),
                   const SizedBox(height: 2),
                   Text(
                     '${datasetLabel(tx.datasetKey)} · ${bits.join(' · ')}',
                     style: const TextStyle(fontSize: 12.5, color: Palette.ink3),
                   ),
                 ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              price,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.3,
-                color: tx.cancelled ? Palette.ink3 : Palette.ink,
-                decoration: tx.cancelled ? TextDecoration.lineThrough : null,
               ),
             ),
           ],

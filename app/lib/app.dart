@@ -9,10 +9,12 @@ import 'data/sync/region_index.dart';
 import 'data/sync/sync_engine.dart';
 import 'format.dart';
 import 'features/about/about_sheet.dart';
+import 'features/ads/ad_policy.dart';
 import 'features/filter/filter_sheet.dart';
 import 'features/list/list_page.dart';
 import 'features/map/map_page.dart';
 import 'features/region/region_picker.dart';
+import 'state/ads.dart';
 import 'state/app_state.dart';
 import 'theme.dart';
 
@@ -50,6 +52,9 @@ class HomeShell extends ConsumerStatefulWidget {
 class _HomeShellState extends ConsumerState<HomeShell> {
   int _tab = 0;
 
+  /// 포그라운드 복귀는 광고를 물어봐도 되는 자리 중 하나다 (FR-6).
+  AppLifecycleListener? _lifecycle;
+
   /// 위치로 지역을 여는 것은 **한 번만** 시도한다. 색인이 늦게 와서 다시 부를
   /// 때도 마찬가지다 — 실패할 때마다 권한 창을 다시 띄우면 앱이 아니라 성가심이다.
   bool _triedLocation = false;
@@ -59,6 +64,20 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     super.initState();
     // 첫 프레임 뒤에 시작한다. build 중에 상태를 건드리면 Riverpod이 막는다.
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+    // 여기서 미리 만든다. 첫 안전 지점에서야 만들면 "앱을 켠 시각"이 그
+    // 순간으로 잡히고, 켠 직후 제한이 앱 실행이 아니라 첫 조작을 기준으로
+    // 걸린다 — 10분 뒤 탭을 처음 눌러도 거기서 90초를 더 기다리게 된다.
+    ref.read(adsControllerProvider);
+    // 켠 직후에도 한 번 불리지만 [kAdLaunchGrace]가 막는다.
+    _lifecycle = AppLifecycleListener(
+      onResume: () => ref.adMoment(AdMoment.resumed),
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycle?.dispose();
+    super.dispose();
   }
 
   /// 마지막으로 보던 지역을 되살리고, 없으면 **지금 있는 곳**을 연다 (FR-1 · T5.9).
@@ -172,7 +191,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         actions: [
           IconButton(
             tooltip: '필터',
-            onPressed: () => FilterSheet.show(context),
+            onPressed: () async {
+              await FilterSheet.show(context);
+              if (mounted) ref.adMoment(AdMoment.filterApplied);
+            },
             icon: const Icon(Icons.tune, size: 20),
           ),
         ],
@@ -191,7 +213,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       bottomNavigationBar: NavigationBar(
         height: 58,
         selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
+        onDestinationSelected: (i) {
+          setState(() => _tab = i);
+          ref.adMoment(AdMoment.tabSwitched);
+        },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.map_outlined), label: '지도'),
           NavigationDestination(icon: Icon(Icons.list_alt), label: '목록'),
