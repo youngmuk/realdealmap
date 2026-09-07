@@ -69,6 +69,7 @@ const summary = (over: Partial<RegionSummary> = {}): RegionSummary => ({
   sidoName: '서울특별시',
   sggName: '강남구',
   records: 10,
+  sampled: 10,
   located: 10,
   refreshedAt: '2026-09-07T00:00:00.000Z',
   ...over,
@@ -112,6 +113,39 @@ describe('지역 요약', () => {
     expect(result.bbox).toBeUndefined();
     expect(result.center).toBeUndefined();
     expect(result.records).toBe(2);
+  });
+
+  // 매 시간 갱신은 최근 3개월만 다시 만든다. 그 건수를 색인에 넣으면 12개월을
+  // 적재해 둔 지역이 한 시간 뒤에 1/4로 줄어 보인다 — 지역 선택 화면이 그 값을
+  // 그대로 쓰므로, 사용자에게는 적재가 통째로 되돌려진 것으로 보인다.
+  describe('부분 갱신', () => {
+    test('전체 건수는 매니페스트에서 온다', () => {
+      const chunk = chunkOf({ '1': [37.5, 127.0], '2': [37.6, 127.1] });
+
+      const result = summarize('11680', REGION, [chunk], '2026-09-07T00:00:00.000Z', 44174);
+
+      expect(result.records).toBe(44174);
+    });
+
+    // 분자는 이번 회차, 분모가 전체면 좌표 채움률이 실제보다 낮게 나온다.
+    // 지표가 낮게 나오면 없는 문제를 쫓게 된다.
+    test('좌표 채움률의 분모는 이번 회차 건수다', () => {
+      const chunk = chunkOf({ '1': [37.5, 127.0], '2': null });
+
+      const result = summarize('11680', REGION, [chunk], '2026-09-07T00:00:00.000Z', 44174);
+
+      expect(result.sampled).toBe(2);
+      expect(result.located).toBe(1);
+    });
+
+    test('전체 건수를 안 주면 이번 회차 건수를 쓴다', () => {
+      const chunk = chunkOf({ '1': [37.5, 127.0], '2': null });
+
+      const result = summarize('11680', REGION, [chunk], '2026-09-07T00:00:00.000Z');
+
+      expect(result.records).toBe(2);
+      expect(result.sampled).toBe(2);
+    });
   });
 
   test('거래가 없어도 지역은 남는다', () => {

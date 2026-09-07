@@ -85,7 +85,9 @@ const main = async () => {
   // 좌표 채움 — 색인이 지역마다 located/records를 들고 있다.
   const index = await readIndex(r2);
   const located = index.regions.reduce((a, r) => a + r.located, 0);
-  const indexed = index.regions.reduce((a, r) => a + r.records, 0);
+  // 분모는 records가 아니라 sampled다. records는 매니페스트 전체 건수인데
+  // located는 마지막 회차에 훑어 본 것만 세므로, 나누면 채움률이 낮게 나온다.
+  const indexed = index.regions.reduce((a, r) => a + (r.sampled ?? r.records), 0);
 
   // 색인에 없는 지역은 앱에서 **존재하지 않는다.** 매니페스트가 있어도 앱은
   // 색인을 보고 지역 목록을 만들기 때문이다. 배포는 됐는데 안 보이는 상태라

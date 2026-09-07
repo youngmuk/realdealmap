@@ -37,6 +37,30 @@ case "$TARGET" in
   *) echo "쓰임: $0 [appbundle|apk]" >&2; exit 1 ;;
 esac
 
+# 서명. 여기가 비면 Gradle이 **디버그 키로** 서명하고 아무 말도 하지 않는다.
+#
+# 그렇게 만든 것은 겉보기로 정상 릴리스와 구별되지 않는다. 앱 안의 "출시 불가"
+# 경고도 이것은 못 잡는다 — 서명은 앱이 자기 자신에 대해 알 수 있는 값이 아니다.
+# Play에 첫 업로드가 그 상태로 들어가면 앱 서명이 **공용 디버그 키에 영구히 묶인다.**
+# 되돌릴 수 없는 종류의 실수라서, 스토어용 산출물은 아예 만들지 않는다.
+if [ ! -f android/key.properties ]; then
+  if [ "$TARGET" = appbundle ]; then
+    cat >&2 <<'MSG'
+없음: app/android/key.properties — 스토어용 번들을 만들 수 없습니다.
+
+  이것이 없으면 빌드는 성공하지만 **디버그 키로 서명**되고, 그 상태로 Play에
+  올리면 앱 서명이 공용 디버그 키에 영구히 묶입니다. 되돌릴 수 없습니다.
+
+  키스토어는 직접 만들어 주세요 (비밀번호를 정하는 일입니다).
+  만드는 법과 key.properties 형식: Doc/스토어등록.html
+
+  기기 확인용이라면: tool/build-release.sh apk
+MSG
+    exit 1
+  fi
+  echo "※ 서명 키가 없어 디버그 키로 서명합니다 — 스토어에 올릴 수 없는 산출물입니다." >&2
+fi
+
 mkdir -p "$(dirname "$GENERATED")"
 umask 077
 printf '{ "VWORLD_KEY": "%s" }\n' "$VWORLD_KEY" > "$GENERATED"

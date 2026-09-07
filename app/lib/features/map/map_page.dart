@@ -17,6 +17,7 @@ import '../ads/ad_policy.dart';
 import '../detail/detail_sheet.dart';
 import 'cluster.dart';
 import 'cluster_icons.dart';
+import 'style_watchdog.dart';
 
 /// 지도 화면 (T5.4 · T5.5).
 ///
@@ -86,49 +87,29 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   /// 지도 위젯의 세대. 올리면 플랫폼 뷰가 통째로 새로 만들어진다.
   ///
-  /// 첫 실행에서 위치 권한 대화상자가 뜨면 그 순간 지도의 표면(surface)이
-  /// 파괴됐다 다시 만들어지는데, 스타일이 아직 올라오는 중이었으면 그대로
-  /// 멈춘다 — `onStyleLoadedCallback`이 영영 안 오고, 소스도 레이어도 없는
-  /// **빈 화면**이 남는다. 탭을 옮겨도 돌아오지 않았다. 앱을 완전히 껐다 켜야
-  /// 살아났다. 첫 실행에서 처음 보는 화면이 그것이었다.
-  ///
-  /// 원인을 하나로 특정해 막는 대신 결과를 본다. 정해진 시간 안에 스타일이
-  /// 오지 않으면 그 지도는 죽은 것이다. 이유가 무엇이든 다시 만든다.
+  /// 규칙은 [StyleWatchdog]에 있다 — 왜 필요한지도 거기 적어 뒀다.
   int _mapGeneration = 0;
 
-  Timer? _styleWatchdog;
-  int _styleRetries = 0;
+  late final _watchdog = StyleWatchdog(onStuck: _recreateMap);
 
-  /// 스타일은 URL이 아니라 문자열이라 네트워크를 타지 않는다. 이 시간을 넘겼다면
-  /// 느린 것이 아니라 멈춘 것이다.
-  static const Duration _kStyleTimeout = Duration(seconds: 10);
-
-  /// 무한히 다시 만들지 않는다. 정말로 못 그리는 기기에서 깜빡임만 남는다.
-  static const int _kMaxStyleRetries = 3;
+  /// 지도가 멈췄다. 플랫폼 뷰를 통째로 새로 만든다.
+  void _recreateMap() {
+    if (!mounted || _styleReady) return;
+    setState(() {
+      _mapGeneration++;
+      _controller = null;
+      _icons.clear();
+    });
+  }
 
   @override
   void dispose() {
     _regionDebounce?.cancel();
     _viewportDebounce?.cancel();
     _filterDebounce?.cancel();
-    _styleWatchdog?.cancel();
+    _watchdog.dispose();
     _controller?.onFeatureTapped.remove(_onFeatureTapped);
     super.dispose();
-  }
-
-  /// 스타일이 올 때까지 지켜본다. 안 오면 지도를 새로 만든다.
-  void _watchStyle() {
-    _styleWatchdog?.cancel();
-    _styleWatchdog = Timer(_kStyleTimeout, () {
-      if (!mounted || _styleReady) return;
-      if (_styleRetries >= _kMaxStyleRetries) return;
-      _styleRetries++;
-      setState(() {
-        _mapGeneration++;
-        _controller = null;
-        _icons.clear();
-      });
-    });
   }
 
   // ------------------------------------------------------------------ 카메라
@@ -145,14 +126,14 @@ class _MapPageState extends ConsumerState<MapPage> {
     if (controller == null || _styling) return;
     _styling = true;
     _styleReady = false;
-    _styleWatchdog?.cancel();
+    _watchdog.pause();
     try {
       await _rebuildStyle(controller);
     } finally {
       _styling = false;
       // 세우다 실패했으면 다시 지켜본다. 콜백은 이미 왔으므로 여기서 손을 놓으면
       // 다시 불러 줄 사람이 없다.
-      if (!_styleReady) _watchStyle();
+      if (!_styleReady) _watchdog.watch();
     }
   }
 
@@ -263,7 +244,7 @@ class _MapPageState extends ConsumerState<MapPage> {
     controller.onFeatureTapped.add(_onFeatureTapped);
     _styleReady = true;
     // 한 번 살아났으면 다음 사고에는 다시 세 번의 기회를 준다.
-    _styleRetries = 0;
+    _watchdog.recovered();
     await _syncViewport();
   }
 
@@ -556,7 +537,7 @@ class _MapPageState extends ConsumerState<MapPage> {
           ),
           onMapCreated: (c) {
             _controller = c;
-            _watchStyle();
+            _watchdog.watch();
           },
           onStyleLoadedCallback: _onStyleLoaded,
           onCameraIdle: _onCameraIdle,

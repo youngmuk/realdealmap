@@ -136,11 +136,19 @@ const summarize = (markdown) => {
  * 덮인 지역은 다음 갱신에서 자기 항목을 다시 넣는다. 매 배포마다 전체를 다시
  * 만드는 비용(지역 수만큼의 GET)보다 이쪽이 싸다.
  */
-const updateIndex = async (r2, sggCd, chunks, refreshedAt) => {
+const updateIndex = async (r2, sggCd, chunks, manifest) => {
   const region = findRegion(sggCd);
   if (!region) throw new Error(`시군구 코드를 카탈로그에서 찾을 수 없습니다: ${sggCd}`);
 
-  const summary = summarizeRegion(sggCd, region, chunks, refreshedAt);
+  // 전체 건수는 **매니페스트**에서 온다. 이번 청크에서 세면 최근 3개월 갱신이
+  // 12개월 적재를 1/4로 줄여 보이게 한다 — 지역 선택 화면이 그 숫자를 쓴다.
+  const summary = summarizeRegion(
+    sggCd,
+    region,
+    chunks,
+    manifest.refreshedAt,
+    manifest.files.reduce((sum, f) => sum + f.records, 0),
+  );
   const index = await readIndex(r2);
   if (sameSummary(index.regions.find((r) => r.sggCd === sggCd), summary)) {
     console.log('  색인 그대로');
@@ -151,7 +159,10 @@ const updateIndex = async (r2, sggCd, chunks, refreshedAt) => {
   const box = summary.bbox
     ? `(${summary.bbox.south}~${summary.bbox.north}, ${summary.bbox.west}~${summary.bbox.east})`
     : '(좌표 없음)';
-  console.log(`  색인 갱신 — 좌표 ${summary.located}/${summary.records}건 ${box}`);
+  console.log(
+    `  색인 갱신 — 전체 ${summary.records}건 · 이번 회차 좌표 ` +
+      `${summary.located}/${summary.sampled}건 ${box}`,
+  );
 };
 
 const main = async () => {
@@ -292,7 +303,7 @@ const main = async () => {
   console.log(`  총 ${result.totalRecords}건 · 파일 ${result.manifest.files.length}개`);
 
   if (!dryRun) {
-    await updateIndex(r2, resolved, chunks, result.manifest.refreshedAt);
+    await updateIndex(r2, resolved, chunks, result.manifest);
     const obsolete = await findObsoleteChunks(r2, resolved, result.manifest);
     if (obsolete.length > 0) {
       console.log(`  낡은 청크 ${obsolete.length}건 (삭제하지 않음 — 보관 기간 후 별도 정리)`);

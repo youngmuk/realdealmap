@@ -28,7 +28,25 @@ export interface RegionSummary {
   readonly bbox?: BoundingBox;
   /** 지도를 처음 놓을 자리. 경계상자 중심이 아니라 **거래의 중앙값**이다 */
   readonly center?: LatLng;
+  /**
+   * 이 지역이 **매니페스트에 들고 있는 전체 건수.**
+   *
+   * 이번 회차에 만든 청크의 건수가 아니다. 매 시간 갱신은 최근 3개월만 다시
+   * 만들므로, 그 숫자를 넣으면 12개월을 적재해 둔 지역이 한 시간 뒤에 1/4로
+   * 줄어 보인다 — 지역 선택 화면이 그 값을 그대로 보여주므로 사용자에게는
+   * "이 지역은 자료가 적다"로 읽힌다. 적재를 통째로 되돌리는 셈이다.
+   */
   readonly records: number;
+
+  /**
+   * [located]의 분모. 이번 회차에 실제로 훑어 본 건수다.
+   *
+   * [records]와 나누면 안 된다 — 분자는 이번 회차의 것이고 분모는 전체라서,
+   * 좌표 채움 비율이 실제보다 낮게 나온다.
+   */
+  readonly sampled: number;
+
+  /** 이번 회차에 훑어 본 것 중 좌표가 있는 건수 */
   readonly located: number;
   readonly refreshedAt: string;
 }
@@ -72,6 +90,11 @@ export const summarize = (
   region: { name?: string; sidoName: string; sggName: string },
   chunks: readonly Chunk[],
   refreshedAt: string,
+  /**
+   * 매니페스트가 들고 있는 전체 건수. 주지 않으면 이번 청크의 건수를 쓴다
+   * (전량을 다시 만든 회차에서는 같은 값이다).
+   */
+  totalRecords?: number,
 ): RegionSummary => {
   const lats: number[] = [];
   const lngs: number[] = [];
@@ -91,7 +114,8 @@ export const summarize = (
     name: region.name ?? `${region.sidoName} ${region.sggName}`,
     sidoName: region.sidoName,
     sggName: region.sggName,
-    records,
+    records: totalRecords ?? records,
+    sampled: records,
     located: lats.length,
     refreshedAt,
   };
@@ -155,6 +179,7 @@ const serializeSummary = (s: RegionSummary): string =>
     s.sggCd,
     s.name,
     s.records,
+    s.sampled,
     s.located,
     s.refreshedAt,
     s.bbox?.south,
