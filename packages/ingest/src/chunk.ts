@@ -3,6 +3,7 @@ import { constants, gzipSync } from 'node:zlib';
 
 import type { DatasetKey } from '@realdealmap/shared';
 
+import { emptyDictionary, locate, type GeoDictionary, type Located } from './geo.js';
 import { indexSnapshot } from './identity.js';
 import type { Transaction } from './normalize.js';
 
@@ -31,6 +32,16 @@ export interface ChunkRecord {
   readonly monthlyRent: number | null;
   readonly cancelled: boolean;
   readonly cancelledOn: string | null;
+  /**
+   * 좌표. 사전에 없으면 `null`이다 — **그것이 곧 "미확인"이다** (T3.1·T3.4).
+   * `precision`은 원천 등급이라 좌표 유무와 무관하게 유지된다.
+   *
+   * 좌표를 청크에 굽는 이유는 **앱이 R2에서 한 번만 받으면 되게 하기 위해서다**(AD-1).
+   * 사전을 따로 내려받아 조인하게 만들면 요청이 늘고 두 파일의 판이 어긋날 수 있다.
+   * 같은 주소가 여러 거래에 반복되지만 gzip이 그 중복을 거의 지운다.
+   */
+  readonly lat: number | null;
+  readonly lng: number | null;
   readonly precision: Transaction['precision'];
   readonly raw: Readonly<Record<string, string>>;
 }
@@ -90,7 +101,7 @@ const canonical = (value: unknown): string => {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`;
 };
 
-const toRecord = (id: string, tx: Transaction): ChunkRecord => ({
+const toRecord = (id: string, tx: Transaction, located: Located): ChunkRecord => ({
   id,
   datasetKey: tx.datasetKey,
   sggCd: tx.sggCd,
@@ -106,7 +117,9 @@ const toRecord = (id: string, tx: Transaction): ChunkRecord => ({
   monthlyRent: tx.monthlyRent,
   cancelled: tx.cancelled,
   cancelledOn: tx.cancelledOn,
-  precision: tx.precision,
+  lat: located.lat,
+  lng: located.lng,
+  precision: located.precision,
   raw: tx.raw,
 });
 
@@ -146,6 +159,14 @@ export const buildChunk = (
   datasetKey: DatasetKey,
   period: string,
   transactions: readonly Transaction[],
+  /**
+   * 좌표 사전. 넘기지 않으면 좌표 없이 굽는다.
+   *
+   * 선택 인자로 둔 것은 **좌표 확보와 수집을 분리하기 위해서다**(T3.3).
+   * 지오코딩이 쿼터에 막혀도 수집·배포는 계속되어야 하고, 좌표는 나중에
+   * 사전이 채워진 뒤 다시 구우면 붙는다.
+   */
+  dictionary?: GeoDictionary,
 ): Chunk => {
   if (!SGG_CD.test(sggCd)) throw new ChunkError(`시군구 코드 형식이 아님: ${sggCd}`);
   if (!PERIOD.test(period)) throw new ChunkError(`연월 형식이 아님: ${period}`);
@@ -155,7 +176,10 @@ export const buildChunk = (
     throw new ChunkError(`유형이 섞였다: ${datasetKey} 청크에 ${mismatched.datasetKey}`);
   }
 
-  const records = indexSnapshot(transactions).map((i) => toRecord(i.id, i.transaction));
+  const dict = dictionary ?? emptyDictionary(sggCd);
+  const records = indexSnapshot(transactions).map((i) =>
+    toRecord(i.id, i.transaction, locate(i.transaction, dict)),
+  );
   const payload: ChunkPayload = { sggCd, datasetKey, period, count: records.length, records };
 
   const json = Buffer.from(canonical(payload), 'utf8');

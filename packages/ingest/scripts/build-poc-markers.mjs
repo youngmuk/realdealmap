@@ -13,35 +13,21 @@
  *
  * 자격증명은 .env에서 읽고 화면에 내지 않는다. 카카오 키는 헤더로만 나간다.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
 import { findRegion } from '@realdealmap/shared';
 
 import { configFromEnv, R2Client, readManifest } from '../dist/index.js';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+import { loadEnv, ROOT } from './env.mjs';
+
 const DEFAULT_OUT = resolve(ROOT, '../spike/map_poc/assets/markers.json');
 
 /** 카카오 로컬 API 일간 한도. 넘길 일은 없지만 넘기려 하면 먼저 멈춘다. */
 const KAKAO_DAILY_QUOTA = 100_000;
 const CONCURRENCY = 8;
-
-const loadEnv = () => {
-  let raw;
-  try {
-    raw = readFileSync(resolve(ROOT, '.env'), 'utf8');
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    return;
-  }
-  for (const line of raw.split(/\r?\n/)) {
-    const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
-    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim();
-  }
-};
 
 const fetchRecords = async (r2, sggCd) => {
   const manifest = await readManifest(r2, sggCd);

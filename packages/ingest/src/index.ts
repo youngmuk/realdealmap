@@ -67,3 +67,36 @@ export {
   readManifest,
   SCHEMA_VERSION,
 } from './publish.js';
+export {
+  GEO_VERSION,
+  geoObjectKey,
+  geoKey,
+  geoKeyOf,
+  geoQuery,
+  emptyDictionary,
+  parseDictionary,
+  isStale,
+  findMissing,
+  withEntries,
+  locate,
+  coverageByDataset,
+  effectivePrecision,
+  coverageMarkdown,
+  evaluateG3,
+  G3_DATASETS,
+  G3_THRESHOLD,
+  NOMATCH_RETRY_DAYS,
+} from './geo.js';
+export type {
+  GeoSource,
+  GeoEntry,
+  GeoDictionary,
+  MissingAddress,
+  Located,
+  CoverageRow,
+  GateResult,
+} from './geo.js';
+export { dictionaryBytes, readDictionary, writeDictionary } from './geo-store.js';
+
+export { Geocoder, KAKAO_DAILY_QUOTA } from './geocoder.js';
+export type { GeocodeOutcome, GeocoderOptions, GeocodeResult } from './geocoder.js';

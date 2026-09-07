@@ -3,6 +3,7 @@
  *
  *   node packages/ingest/scripts/publish-region.mjs 11680
  *   node packages/ingest/scripts/publish-region.mjs 11680 --months=3 --dry-run
+ *   node packages/ingest/scripts/publish-region.mjs 11680 --geocode=0   # 좌표 변환 없이
  *
  * **최근 N개월을 한 번에 올린다.** 매니페스트는 그 지역에서 살아 있는 파일의
  * 전체 목록이므로(§5.2), 한 달치만 넘기면 나머지 달이 목록에서 사라진다.
@@ -10,56 +11,32 @@
  *
  * 자격증명은 .env에서 읽고 화면에 내지 않는다.
  */
-import { appendFileSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { appendFileSync } from 'node:fs';
+
+import { findRegion } from '@realdealmap/shared';
 
 import {
   buildChunk,
   configFromEnv,
+  coverageByDataset,
+  coverageMarkdown,
   datasetKeys,
+  evaluateG3,
+  findMissing,
   findObsoleteChunks,
+  Geocoder,
   MolitClient,
   normalizeAll,
   publishRegion,
+  readDictionary,
   recentPeriods,
   R2Client,
+  withEntries,
+  writeDictionary,
 } from '../dist/index.js';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+import { loadEnv } from './env.mjs';
 
-/**
- * `.env` 한 줄의 값을 푼다.
- *
- * 따옴표로 감싸면 그 안을 값으로 본다. 감싸지 않았을 때만 `#` 이후를 주석으로 버린다 —
- * 인증키에 `#`이 들어갈 수 있어서, 따옴표 안까지 자르면 키가 조용히 잘린다.
- * 잘린 키는 오류가 아니라 인증 실패로 나타나므로 원인을 찾기 어렵다.
- */
-const unquote = (raw) => {
-  const v = raw.trim();
-  const quoted = /^(["'])([\s\S]*)\1$/.exec(v);
-  if (quoted) return quoted[2];
-  return v.split('#')[0].trim();
-};
-
-/**
- * 로컬은 `.env`, CI는 환경변수(GitHub Secrets)에서 읽는다.
- * 파일이 없는 것은 정상이므로 조용히 넘어간다 — CI에는 애초에 없다.
- */
-const loadEnv = () => {
-  let raw;
-  try {
-    raw = readFileSync(resolve(ROOT, '.env'), 'utf8');
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    return;
-  }
-  for (const line of raw.split(/\r?\n/)) {
-    const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
-    if (!m || process.env[m[1]] !== undefined) continue;
-    process.env[m[1]] = unquote(m[2]);
-  }
-};
 
 const readServiceKey = () => {
   const key = process.env.DATA_GO_KR_SERVICE_KEY;
@@ -68,6 +45,63 @@ const readServiceKey = () => {
 };
 
 const pad = (v, w) => String(v).padStart(w);
+
+/**
+ * 매 시간 갱신에서 쓸 수 있는 지오코딩 호출 수의 기본 상한.
+ *
+ * 사전은 수렴한다 — 한 번 채우고 나면 시간마다 새로 붙는 주소는 몇 건뿐이다.
+ * 문제는 **처음 보는 지역의 첫 실행**이고(강남구 실측 고유 주소 약 5,000건),
+ * 여러 지역이 같은 시간에 돌면 카카오 일간 10만을 태울 수 있다.
+ *
+ * 그래서 갱신 경로는 조금씩만 채우고, 나머지는 예약 작업(geocode-queue)이
+ * 큰 예산으로 밀어 넣는다. 좌표가 아직 없는 거래는 마커가 안 찍힐 뿐
+ * 목록과 상세는 그대로 나오므로, 천천히 채워도 앱은 계속 쓸 수 있다.
+ */
+const REFRESH_GEOCODE_BUDGET = 2_000;
+
+/** 지역 표시 이름. 지오코딩 질의의 접두사가 된다 ("서울특별시 강남구 논현동 1"). */
+const regionNameOf = (sggCd) => {
+  const region = findRegion(sggCd);
+  if (!region) throw new Error(`시군구 코드를 카탈로그에서 찾을 수 없습니다: ${sggCd}`);
+  return region.name ?? `${region.sidoName} ${region.sggName}`;
+};
+
+/**
+ * 사전에 없는 주소를 예산만큼 채운다.
+ *
+ * 카카오 키가 없으면 **조용히 건너뛴다.** 좌표는 있으면 좋은 것이지 수집의 전제가
+ * 아니다. 여기서 던지면 키 하나 때문에 실거래 갱신 전체가 멈춘다.
+ */
+const topUpDictionary = async (r2, sggCd, dictionary, transactions, budget) => {
+  const apiKey = process.env.KAKAO_REST_API_KEY;
+  if (!apiKey) {
+    console.log('  건너뜀 — KAKAO_REST_API_KEY가 없다. 좌표 없이 굽는다.');
+    return dictionary;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const missing = findMissing(transactions, dictionary, today);
+  if (missing.length === 0) {
+    console.log('  사전이 최신이다. 호출 없음.');
+    return dictionary;
+  }
+
+  const geocoder = new Geocoder({ apiKey, regionName: regionNameOf(sggCd), budget, today });
+  const result = await geocoder.run(missing);
+
+  console.log(
+    `  대상 ${missing.length}건 · 호출 ${result.calls}회 → 성공 ${result.found} · 미매칭 ${result.nomatch} · 이월 ${result.deferred.length}`,
+  );
+  if (result.quotaExhausted) console.log('  ! 카카오 쿼터에 막혔다. 나머지는 다음 실행으로.');
+  if (result.errors.length > 0) {
+    console.log(`  ! 오류 ${result.errors.length}건 — ${result.errors[0]}`);
+  }
+  if (Object.keys(result.entries).length === 0) return dictionary;
+
+  const updated = withEntries(dictionary, result.entries, new Date());
+  await writeDictionary(r2, updated);
+  return updated;
+};
 
 /**
  * 종료 코드를 구분한다. CI가 "무엇 때문에 멈췄는지"를 로그를 읽지 않고 알아야 한다.
@@ -87,6 +121,14 @@ const main = async () => {
   loadEnv();
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
+  const noGeocode = args.includes('--no-geocode');
+  const geocodeArg = args.find((a) => a.startsWith('--geocode='));
+  const geocodeBudget = geocodeArg
+    ? Number(geocodeArg.slice('--geocode='.length))
+    : REFRESH_GEOCODE_BUDGET;
+  if (!Number.isInteger(geocodeBudget) || geocodeBudget < 0) {
+    throw new Error(`--geocode 값이 잘못됨: ${geocodeArg}`);
+  }
   const monthsArg = args.find((a) => a.startsWith('--months='));
   const months = monthsArg ? Number(monthsArg.slice('--months='.length)) : 3;
   // 상한은 `recentPeriods`가 MAX_MONTHS로 강제한다. 여기서는 형식만 본다 —
@@ -105,7 +147,9 @@ const main = async () => {
   );
 
   console.log('수집');
-  const chunks = [];
+  // 청크를 바로 굽지 않고 거래를 모아 둔다. 좌표 사전을 먼저 채워야 하기 때문이다 —
+  // 구운 뒤에 사전을 채우면 그 회차 좌표는 다음 실행까지 비어 있다.
+  const batches = [];
   let issues = 0;
   let calls = 0;
   for (const period of periods) {
@@ -113,12 +157,9 @@ const main = async () => {
       const fetched = await molit.fetchAll(key, resolved, period);
       calls += fetched.calls;
       const { transactions, failures } = normalizeAll(key, fetched.items);
-      const chunk = buildChunk(resolved, key, period, transactions);
-      chunks.push(chunk);
+      batches.push({ period, key, transactions });
 
-      console.log(
-        `  ${period}  ${key.padEnd(16)} ${pad(chunk.payload.count, 5)}건  ${pad(chunk.bytes.byteLength, 6)}B`,
-      );
+      console.log(`  ${period}  ${key.padEnd(16)} ${pad(transactions.length, 5)}건`);
       if (failures.length > 0) {
         issues += 1;
         console.log(`    ! 정규화 실패 ${failures.length}건 — ${failures[0].message}`);
@@ -131,6 +172,37 @@ const main = async () => {
       }
     }
   }
+
+  const allTransactions = batches.flatMap((b) => b.transactions);
+
+  console.log('\n좌표');
+  let dictionary = await readDictionary(r2, resolved);
+  console.log(`  사전 ${Object.keys(dictionary.entries).length}개 항목`);
+  if (dryRun) {
+    console.log('  건너뜀 — 시험 실행은 쿼터를 쓰지 않는다.');
+  } else if (noGeocode || geocodeBudget === 0) {
+    console.log('  건너뜀 — 요청에 따라 변환하지 않는다.');
+  } else {
+    dictionary = await topUpDictionary(r2, resolved, dictionary, allTransactions, geocodeBudget);
+  }
+
+  // 사전이 채워진 뒤에 굽는다. 순서를 뒤집으면 이번 회차 좌표가 통째로 비어 나간다.
+  const chunks = batches.map((b) =>
+    buildChunk(resolved, b.key, b.period, b.transactions, dictionary),
+  );
+  for (const chunk of chunks) {
+    console.log(
+      `  ${chunk.payload.period}  ${chunk.payload.datasetKey.padEnd(16)} ${pad(chunk.bytes.byteLength, 6)}B`,
+    );
+  }
+
+  const coverage = coverageByDataset(allTransactions, dictionary);
+  const gate = evaluateG3(coverage);
+  const located = coverage.reduce((a, r) => a + r.located, 0);
+  const totalTx = coverage.reduce((a, r) => a + r.total, 0);
+  console.log(
+    `  좌표 있음 ${located}/${totalTx}건 · G3 ${gate === null ? '미판정' : gate.passed ? '통과' : `실패 ${(gate.ratio * 100).toFixed(1)}%`}`,
+  );
 
   console.log('\n배포');
   const result = await publishRegion(r2, resolved, chunks, { dryRun });
@@ -176,6 +248,8 @@ const main = async () => {
       `| 매니페스트 | ${result.manifestReplaced ? '교체됨' : '유지'} |`,
       `| 원천 호출 | ${calls}회 |`,
       `| 수집 이슈 | ${issues}건 |`,
+      '',
+      coverageMarkdown(resolved, coverage, gate),
     ].join('\n'),
   );
   process.exitCode = issues > 0 ? EXIT.issues : EXIT.ok;

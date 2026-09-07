@@ -10,31 +10,17 @@
  *
  * 자격증명은 .env에서 읽고 화면에 내지 않는다. 카카오 키는 헤더로만 나간다.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
 import { findRegion } from '@realdealmap/shared';
 
 import { configFromEnv, R2Client, readManifest } from '../dist/index.js';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const OUT = resolve(ROOT, 'packages/ingest/spike-geocode.json');
+import { loadEnv, ROOT } from './env.mjs';
 
-const loadEnv = () => {
-  let raw;
-  try {
-    raw = readFileSync(resolve(ROOT, '.env'), 'utf8');
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    return;
-  }
-  for (const line of raw.split(/\r?\n/)) {
-    const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
-    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim();
-  }
-};
+const OUT = resolve(ROOT, 'packages/ingest/spike-geocode.json');
 
 /**
  * R2에서 매니페스트가 가리키는 청크를 전부 받아 레코드로 편다.
