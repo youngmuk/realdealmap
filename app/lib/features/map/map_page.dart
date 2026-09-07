@@ -544,7 +544,15 @@ class _MapPageState extends ConsumerState<MapPage> {
           bottom: 12,
           child: Align(
             alignment: Alignment.bottomLeft,
-            child: _Legend(drawn: _drawn, total: _total, truncated: _truncated),
+            child: _Legend(
+              drawn: _drawn,
+              total: _total,
+              truncated: _truncated,
+              // 고른 지역에 좌표가 없다는 고지가 떠 있을 때는 건수를 감춘다.
+              // 그 숫자는 **지금 보이는 자리**의 것이라 맞는 말이지만,
+              // 머리말의 지역과 나란히 놓이면 그 지역의 건수로 읽힌다.
+              showCount: _noCenterFor == null,
+            ),
           ),
         ),
       ],
@@ -653,7 +661,10 @@ class _Legend extends StatelessWidget {
     required this.drawn,
     required this.total,
     required this.truncated,
+    this.showCount = true,
   });
+
+  final bool showCount;
   final int drawn;
 
   /// 화면 안에 실제로 있는 건수
@@ -685,17 +696,19 @@ class _Legend extends StatelessWidget {
               ),
           ],
         ),
-        const SizedBox(height: 5),
-        Text(
-          truncated
-              ? '화면 안 ${formatCount(total)}건 중 ${formatCount(drawn)}건만 표시 '
-                    '· 확대하면 전부 보입니다'
-              : '화면 안 ${formatCount(drawn)}건 · 옅은 원은 법정동 근사',
-          style: TextStyle(
-            fontSize: 10.5,
-            color: truncated ? Palette.warn : Palette.ink3,
+        if (showCount) ...[
+          const SizedBox(height: 5),
+          Text(
+            truncated
+                ? '화면 안 ${formatCount(total)}건 중 ${formatCount(drawn)}건만 표시 '
+                      '· 확대하면 전부 보입니다'
+                : '화면 안 ${formatCount(drawn)}건 · 옅은 원은 법정동 근사',
+            style: TextStyle(
+              fontSize: 10.5,
+              color: truncated ? Palette.warn : Palette.ink3,
+            ),
           ),
-        ),
+        ],
       ],
     ),
   );
