@@ -48,6 +48,90 @@ void main() {
     includeCancelled: cancelled,
   )).map((p) => p.txId).toList();
 
+  /// 상한에 걸렸을 때 화면 안 **진짜 총계**를 세는 조회.
+  ///
+  /// 군집에 찍히는 숫자는 불러온 것만 센 값이다. 두 조회가 같은 조건을 써야
+  /// "N건 중 M건만 표시"라는 문장이 참이 된다. 조건이 갈라지면 그 거짓은
+  /// 화면만 봐서는 알아챌 수 없다.
+  group('화면 안 건수', () {
+    Future<void> seed(int n) async {
+      for (var i = 0; i < n; i += 1) {
+        await db
+            .into(db.txRows)
+            .insert(
+              tx(
+                'tx-$i',
+                lat: 37.5,
+                lng: 127.0,
+                cancelled: i % 2 == 1,
+                period: i % 3 == 0 ? '202606' : '202608',
+              ),
+            );
+      }
+    }
+
+    test('상한과 무관하게 전부 센다', () async {
+      await seed(30);
+
+      final pins = await db.pinsInBounds(
+        south: 37,
+        north: 38,
+        west: 126,
+        east: 128,
+        limit: 10,
+      );
+      final total = await db.countPinsInBounds(
+        south: 37,
+        north: 38,
+        west: 126,
+        east: 128,
+      );
+
+      expect(pins, hasLength(10));
+      expect(total, 30);
+    });
+
+    test('마커 조회와 같은 조건을 쓴다', () async {
+      await seed(30);
+
+      for (final args in [
+        (cancelled: true, months: <String>{}),
+        (cancelled: false, months: <String>{}),
+        (cancelled: true, months: {'202608'}),
+        (cancelled: false, months: {'202606'}),
+      ]) {
+        final pins = await db.pinsInBounds(
+          south: 37,
+          north: 38,
+          west: 126,
+          east: 128,
+          includeCancelled: args.cancelled,
+          months: args.months,
+        );
+        final total = await db.countPinsInBounds(
+          south: 37,
+          north: 38,
+          west: 126,
+          east: 128,
+          includeCancelled: args.cancelled,
+          months: args.months,
+        );
+
+        expect(total, pins.length, reason: '조건 $args에서 갈라졌다');
+      }
+    });
+
+    test('경계 밖은 세지 않는다', () async {
+      await db.into(db.txRows).insert(tx('in', lat: 37.5, lng: 127.0));
+      await db.into(db.txRows).insert(tx('out', lat: 35.0, lng: 129.0));
+
+      expect(
+        await db.countPinsInBounds(south: 37, north: 38, west: 126, east: 128),
+        1,
+      );
+    });
+  });
+
   group('지도 필터', () {
     // 지도와 목록이 같은 규칙을 써야 "목록에는 있는데 지도에 없다"가
     // 좌표 탓임이 분명해진다.

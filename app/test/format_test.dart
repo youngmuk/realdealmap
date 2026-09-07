@@ -124,4 +124,19 @@ void main() {
       expect(datasetLabel('알 수 없음'), '알 수 없음');
     });
   });
+
+  // 지도 위 문장은 스치듯 읽힌다. 20648과 20,648은 읽는 속도가 다르다.
+  group('건수 표기', () {
+    test('천 단위로 끊는다', () {
+      expect(formatCount(0), '0');
+      expect(formatCount(999), '999');
+      expect(formatCount(1000), '1,000');
+      expect(formatCount(20648), '20,648');
+      expect(formatCount(1234567), '1,234,567');
+    });
+
+    test('음수도 끊는다', () {
+      expect(formatCount(-1234), '-1,234');
+    });
+  });
 }

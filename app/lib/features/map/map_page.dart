@@ -8,6 +8,7 @@ import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 import '../../config.dart';
 import '../../data/db/database.dart';
 import '../../data/sync/region_index.dart' as idx;
+import '../../format.dart';
 import '../../state/ads.dart';
 import '../../state/app_state.dart';
 import '../../state/filters.dart';
@@ -61,6 +62,9 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   /// 화면 안 거래가 상한에 걸려 잘렸는가
   bool _truncated = false;
+
+  /// 화면 안에 실제로 있는 건수. 상한에 안 걸렸으면 [_drawn]과 같다.
+  int _total = 0;
 
   /// 필터가 연속으로 바뀔 때(가격 슬라이더) 매번 다시 그리지 않는다
   Timer? _filterDebounce;
@@ -329,12 +333,34 @@ class _MapPageState extends ConsumerState<MapPage> {
     await controller.setGeoJsonSource(_sourceId, _toCollection(clustered));
 
     final truncated = pins.length >= kPinLimit;
+    // 상한에 걸렸을 때만 진짜 총계를 센다.
+    //
+    // 군집에 찍히는 숫자는 **불러온 것만** 센 값이다. 총계를 같이 말하지 않으면
+    // 사용자는 그 숫자를 화면 안 전부로 읽는다. 안 걸렸을 때는 불러온 것이
+    // 곧 전부라 셀 이유가 없다.
+    final total = truncated
+        ? await ref
+              .read(databaseProvider)
+              .countPinsInBounds(
+                south: bounds.southwest.latitude - padLat,
+                north: bounds.northeast.latitude + padLat,
+                west: bounds.southwest.longitude - padLng,
+                east: bounds.northeast.longitude + padLng,
+                datasetKeys: filter.datasetKeysOrNull,
+                includeCancelled: filter.includeCancelled,
+                minAmount: filter.minAmount,
+                maxAmount: filter.maxAmount,
+                months: filter.months,
+              )
+        : pins.length;
+
     if (mounted &&
         seq == _viewportSeq &&
-        (pins.length != _drawn || truncated != _truncated)) {
+        (pins.length != _drawn || truncated != _truncated || total != _total)) {
       setState(() {
         _drawn = pins.length;
         _truncated = truncated;
+        _total = total;
       });
     }
   }
@@ -491,7 +517,7 @@ class _MapPageState extends ConsumerState<MapPage> {
           bottom: 12,
           child: Align(
             alignment: Alignment.bottomLeft,
-            child: _Legend(drawn: _drawn, truncated: _truncated),
+            child: _Legend(drawn: _drawn, total: _total, truncated: _truncated),
           ),
         ),
       ],
@@ -551,8 +577,15 @@ Map<String, dynamic> _toCollection(List<MapFeature> features) => {
 
 /// 범례. 색이 뜻을 가지므로 뜻을 밝히지 않으면 장식이 된다.
 class _Legend extends StatelessWidget {
-  const _Legend({required this.drawn, required this.truncated});
+  const _Legend({
+    required this.drawn,
+    required this.total,
+    required this.truncated,
+  });
   final int drawn;
+
+  /// 화면 안에 실제로 있는 건수
+  final int total;
 
   /// 상한에 걸려 일부만 그렸는가. **감추면 사용자는 그것이 전부인 줄 안다**
   final bool truncated;
@@ -583,8 +616,9 @@ class _Legend extends StatelessWidget {
         const SizedBox(height: 5),
         Text(
           truncated
-              ? '화면 안 $drawn건까지만 표시 · 확대하면 전부 보입니다'
-              : '화면 안 $drawn건 · 옅은 원은 법정동 근사',
+              ? '화면 안 ${formatCount(total)}건 중 ${formatCount(drawn)}건만 표시 '
+                    '· 확대하면 전부 보입니다'
+              : '화면 안 ${formatCount(drawn)}건 · 옅은 원은 법정동 근사',
           style: TextStyle(
             fontSize: 10.5,
             color: truncated ? Palette.warn : Palette.ink3,

@@ -99,3 +99,17 @@ String _trim(double value) {
   if (!text.contains('.')) return text;
   return text.replaceFirst(RegExp(r'\.?0+$'), '');
 }
+
+/// 천 단위로 끊는다.
+///
+/// 20648과 20,648은 읽는 속도가 다르다. 지도 위 문장은 스치듯 읽히므로
+/// 자릿수를 셀 필요가 없어야 한다.
+String formatCount(int n) {
+  final digits = n.abs().toString();
+  final buffer = StringBuffer(n < 0 ? '-' : '');
+  for (var i = 0; i < digits.length; i += 1) {
+    if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(',');
+    buffer.write(digits[i]);
+  }
+  return buffer.toString();
+}

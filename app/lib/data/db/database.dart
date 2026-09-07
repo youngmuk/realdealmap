@@ -119,7 +119,12 @@ class AppDatabase extends _$AppDatabase {
   /// **정렬을 붙인 이유**: 없으면 어느 것이 잘릴지가 R*Tree 순회 순서에 달려
   /// 호출마다 달라진다. 같은 자리를 봐도 묶음 개수가 미세하게 흔들린다.
   /// 결과가 [limit]과 같으면 잘린 것이고, 화면은 그 사실을 밝혀야 한다.
-  Future<List<MapPin>> pinsInBounds({
+  /// 경계상자와 필터를 SQL 조각과 바인딩으로 만든다.
+  ///
+  /// 마커 조회와 건수 조회가 **같은 조건**을 써야 한다. 조건이 갈라지면
+  /// "화면 안 N건 중 5,000건" 같은 문장이 거짓이 되는데, 그 거짓은 화면만
+  /// 봐서는 알아챌 수 없다.
+  (String, List<Variable<Object>>) _boundsQuery({
     required double south,
     required double north,
     required double west,
@@ -129,8 +134,7 @@ class AppDatabase extends _$AppDatabase {
     int? minAmount,
     int? maxAmount,
     Set<String>? months,
-    int limit = kPinLimit,
-  }) async {
+  }) {
     final filters = <String>[];
     final vars = <Variable<Object>>[
       Variable<double>(south),
@@ -160,6 +164,74 @@ class AppDatabase extends _$AppDatabase {
       filters.add('AND (t.amount <= ? OR t.deposit <= ?)');
       vars.addAll([Variable<int>(maxAmount), Variable<int>(maxAmount)]);
     }
+    return (filters.join(' '), vars);
+  }
+
+  /// 화면 안에 좌표가 있는 거래가 **모두 몇 건인지**.
+  ///
+  /// 상한에 걸렸을 때만 부른다. 마커에 찍히는 숫자는 불러온 것만 센 값이라,
+  /// 진짜 총계를 같이 말하지 않으면 사용자가 그 숫자를 전부로 읽는다.
+  Future<int> countPinsInBounds({
+    required double south,
+    required double north,
+    required double west,
+    required double east,
+    Set<String>? datasetKeys,
+    bool includeCancelled = true,
+    int? minAmount,
+    int? maxAmount,
+    Set<String>? months,
+  }) async {
+    final (filters, vars) = _boundsQuery(
+      south: south,
+      north: north,
+      west: west,
+      east: east,
+      datasetKeys: datasetKeys,
+      includeCancelled: includeCancelled,
+      minAmount: minAmount,
+      maxAmount: maxAmount,
+      months: months,
+    );
+
+    final row = await customSelect(
+      '''
+      SELECT COUNT(*) AS n
+      FROM tx_geo g
+      JOIN tx_rows t ON t.rid = g.id
+      WHERE g.maxLat >= ? AND g.minLat <= ? AND g.maxLng >= ? AND g.minLng <= ?
+      $filters
+      ''',
+      variables: vars,
+      readsFrom: {txRows},
+    ).getSingle();
+
+    return row.read<int>('n');
+  }
+
+  Future<List<MapPin>> pinsInBounds({
+    required double south,
+    required double north,
+    required double west,
+    required double east,
+    Set<String>? datasetKeys,
+    bool includeCancelled = true,
+    int? minAmount,
+    int? maxAmount,
+    Set<String>? months,
+    int limit = kPinLimit,
+  }) async {
+    final (filters, vars) = _boundsQuery(
+      south: south,
+      north: north,
+      west: west,
+      east: east,
+      datasetKeys: datasetKeys,
+      includeCancelled: includeCancelled,
+      minAmount: minAmount,
+      maxAmount: maxAmount,
+      months: months,
+    );
     vars.add(Variable<int>(limit));
 
     final rows = await customSelect(
@@ -169,7 +241,7 @@ class AppDatabase extends _$AppDatabase {
       FROM tx_geo g
       JOIN tx_rows t ON t.rid = g.id
       WHERE g.maxLat >= ? AND g.minLat <= ? AND g.maxLng >= ? AND g.minLng <= ?
-      ${filters.join(' ')}
+      $filters
       ORDER BY t.rid
       LIMIT ?
       ''',
