@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- 인터넷: R2에서 데이터를 받는다 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!--
@@ -8,8 +9,19 @@
       요구하지 않는다 — 필요 없는 권한을 받는 것은 그 자체로 비용이다.
     -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!--
+      geolocator 플러그인이 자기 매니페스트에서 정밀 위치를 얹는다. 그대로 두면
+      권한 창에 "정확한 위치"가 뜨고, 우리가 방침과 스토어 설명에 적어 둔
+      "정밀 위치를 요구하지 않는다"가 **거짓말이 된다.**
+
+      병합 단계에서 뺀다. 대략 위치만으로 시군구를 고르는 데 부족함이 없다
+      (`LocationAccuracy.low`).
+    -->
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        tools:node="remove" />
     <application
-        android:label="realdealmap"
+        android:label="실거래가 지도"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

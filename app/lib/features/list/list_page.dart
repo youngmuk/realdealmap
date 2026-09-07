@@ -27,8 +27,11 @@ class ListPage extends ConsumerWidget {
 
     final filter = ref.watch(filterProvider);
     final db = ref.watch(databaseProvider);
-    // 동기화가 끝나면 목록을 다시 읽는다.
-    ref.watch(syncProvider);
+    // 데이터가 실제로 바뀌었을 때만 다시 읽는다.
+    //
+    // 상태 전체를 보면 "도는 중"이 켜지고 꺼질 때마다 여기가 다시 그려지고,
+    // 아래 FutureBuilder가 매번 질의를 새로 걸어 스피너가 번쩍인다.
+    ref.watch(syncProvider.select((s) => s.revision));
 
     return FutureBuilder<(List<TxRow>, int)>(
       future: _load(db, sggCd, filter),

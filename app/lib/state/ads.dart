@@ -67,7 +67,9 @@ class AdsController extends Notifier<AdsState> {
     if (storedFirstRun == null) {
       // 첫 실행이다. 여기서 기준점을 박아 두지 않으면 첫 안전 지점에서
       // 곧바로 광고가 뜨고, 그것이 이 앱의 첫인상이 된다.
-      prefs.setString(_firstRunKey, now.toIso8601String());
+      // build 안이라 기다릴 수 없다. 잃어도 다음 실행에서 다시 박히고,
+      // 그때는 첫 주기가 한 번 더 미뤄질 뿐이라 손해가 사용자 쪽이 아니다.
+      unawaited(prefs.setString(_firstRunKey, now.toIso8601String()));
     }
 
     return AdsState(

@@ -97,8 +97,8 @@ class _MonthPicker extends ConsumerWidget {
     if (sggCd == null) return const _Hint('지역을 먼저 고르세요');
 
     final db = ref.watch(databaseProvider);
-    // 동기화가 끝나면 달 목록도 달라진다.
-    ref.watch(syncProvider);
+    // 데이터가 실제로 바뀌면 달 목록도 달라진다. 그때만 다시 읽는다.
+    ref.watch(syncProvider.select((s) => s.revision));
     final selected = ref.watch(filterProvider).months;
 
     return FutureBuilder<List<String>>(

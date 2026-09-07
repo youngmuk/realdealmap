@@ -27,6 +27,9 @@ class _FakeEngine implements SyncEngine {
 
   Manifest? manifestFor;
 
+  /// 이 회차에 실제로 쓴 행 수
+  int applied = 1;
+
   @override
   Future<SyncOutcome> sync(String sggCd) async {
     calls.add(sggCd);
@@ -35,7 +38,7 @@ class _FakeEngine implements SyncEngine {
     return SyncOutcome(
       sggCd: sggCd,
       status: SyncStatus.updated,
-      applied: 1,
+      applied: applied,
       manifest: manifestFor,
     );
   }
@@ -158,6 +161,24 @@ void main() {
     await first;
 
     expect(container.read(syncProvider).running, isFalse);
+  });
+
+  // 목록과 필터는 이 값만 본다. 상태 전체를 보면 "도는 중"이 켜지고 꺼질 때마다
+  // 다시 질의가 걸려 로딩 스피너가 번쩍인다.
+  test('행을 쓴 회차에만 개정 번호가 오른다', () async {
+    final notifier = container.read(syncProvider.notifier);
+    expect(container.read(syncProvider).revision, 0);
+
+    await notifier.syncRegion('11680');
+    expect(container.read(syncProvider).revision, 1);
+
+    engine.applied = 0; // 매니페스트만 확인하고 끝난 회차
+    await notifier.syncRegion('11680');
+    expect(
+      container.read(syncProvider).revision,
+      1,
+      reason: '바뀐 게 없는데 올리면 목록이 헛되이 다시 질의한다',
+    );
   });
 
   // 지역을 바꾼 직후에는 들고 있던 기준 시각이 이전 지역의 것이다.

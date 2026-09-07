@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -108,11 +110,11 @@ class SelectedRegion extends Notifier<String?> {
     if (sggCd == state) return;
     state = sggCd;
     final prefs = ref.read(prefsProvider);
-    if (sggCd == null) {
-      prefs.remove(_key);
-    } else {
-      prefs.setString(_key, sggCd);
-    }
+    // 기다리지 않는다. 저장이 끝나기를 기다리면 지역 전환이 디스크 쓰기만큼
+    // 느려지는데, 화면에 필요한 값은 이미 state에 들어가 있다.
+    unawaited(
+      sggCd == null ? prefs.remove(_key) : prefs.setString(_key, sggCd),
+    );
   }
 }
 
@@ -134,11 +136,14 @@ class LastCamera extends Notifier<CameraState?> {
 
   void remember(CameraState camera) {
     state = camera;
-    ref.read(prefsProvider).setStringList(_key, [
-      camera.lat.toString(),
-      camera.lng.toString(),
-      camera.zoom.toString(),
-    ]);
+    // 지도를 움직일 때마다 불린다. 기다리면 그 대기가 곧 프레임 지연이다.
+    unawaited(
+      ref.read(prefsProvider).setStringList(_key, [
+        camera.lat.toString(),
+        camera.lng.toString(),
+        camera.zoom.toString(),
+      ]),
+    );
   }
 }
 
@@ -179,6 +184,7 @@ class SyncState {
     this.message,
     this.triggered,
     this.refreshedAt,
+    this.revision = 0,
   });
 
   final bool running;
@@ -190,6 +196,13 @@ class SyncState {
   /// 실거래는 값이 시각에 매인 데이터라 "언제 것인지"를 감추면 안 된다
   final DateTime? refreshedAt;
 
+  /// 로컬 데이터가 실제로 바뀐 횟수.
+  ///
+  /// 목록과 필터는 이것만 본다. 상태 전체를 보면 "도는 중"이 켜지고 꺼질 때마다
+  /// 다시 그려지고, 그때마다 질의를 새로 걸어 **로딩 스피너가 번쩍인다.**
+  /// 바뀐 게 없는데 화면이 깜빡이면 사용자는 무언가 잘못됐다고 읽는다.
+  final int revision;
+
   /// 화면에 띄울 만한 문제가 있는가. 조용한 실패를 만들지 않는다
   bool get hasProblem =>
       last == SyncStatus.offline || last == SyncStatus.rejected;
@@ -200,7 +213,9 @@ class SyncState {
     String? message,
     TriggerResult? triggered,
     DateTime? refreshedAt,
+    int? revision,
   }) => SyncState(
+    revision: revision ?? this.revision,
     running: running ?? this.running,
     last: last ?? this.last,
     message: message ?? this.message,
@@ -271,6 +286,9 @@ class SyncController extends Notifier<SyncState> {
       message: outcome.message,
       refreshedAt: refreshedAt,
       triggered: state.triggered,
+      // 행을 실제로 쓴 경우에만 올린다. 매니페스트만 확인하고 끝난 회차까지
+      // 세면 목록이 바뀐 것도 없이 다시 질의한다.
+      revision: state.revision + (outcome.applied > 0 ? 1 : 0),
     );
 
     if (!trigger || manifest == null) return;
