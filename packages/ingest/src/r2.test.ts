@@ -218,6 +218,25 @@ describe('목록 조회', () => {
     (next ? `<NextContinuationToken>${next}</NextContinuationToken>` : '') +
     `</ListBucketResult>`;
 
+  // 저장 용량은 여기서만 잴 수 있다. 매니페스트의 bytes를 더하면 살아 있는
+  // 데이터만 세게 되어, 실제 R2에 쌓인 낡은 청크가 빠진다 (T6.5).
+  test('객체 크기를 더해 돌려준다', async () => {
+    const xml =
+      '<ListBucketResult>' +
+      '<Contents><Key>a</Key><Size>100</Size></Contents>' +
+      '<Contents><Key>b</Key><Size>250</Size></Contents>' +
+      '</ListBucketResult>';
+    const { client } = clientWith([() => ok(xml)]);
+
+    expect((await client.list()).bytes).toBe(350);
+  });
+
+  test('크기가 없는 응답은 0으로 센다', async () => {
+    const { client } = clientWith([() => ok(listXml(['a']))]);
+
+    expect((await client.list()).bytes).toBe(0);
+  });
+
   test('접두사로 키를 나열한다', async () => {
     const { s, client } = clientWith([() => ok(listXml(['chunks/a', 'chunks/b']))]);
     const result = await client.list('chunks/');

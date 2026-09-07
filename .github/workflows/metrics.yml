@@ -1,0 +1,105 @@
+name: metrics
+
+# 운영 지표를 하루 한 번 모아 잡 요약과 아티팩트로 남긴다 (T6.5).
+#
+# **지표 저장소를 따로 두지 않는다.** 무료 구성에 관측 서비스를 붙이면 그것이
+# 또 하나의 운영 대상이 되고, 어긋나기 시작하면 어느 쪽이 진실인지 알 수 없다.
+# 여기서 내는 값은 전부 지금 R2와 Actions API에 있는 것에서 계산한다.
+
+on:
+  schedule:
+    - cron: '40 21 * * *' # UTC 21:40 = KST 06:40
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # 배치 성공률을 세려면 워크플로 실행 이력을 읽어야 한다.
+  actions: read
+
+concurrency:
+  group: metrics
+  cancel-in-progress: true
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: 빌드
+        run: npm run typecheck
+
+      - name: R2 지표
+        run: node packages/ingest/scripts/report-metrics.mjs --months=12 > /tmp/metrics.md
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+      - name: 배치 성공률
+        run: |
+          since=$(date -u -d '7 days ago' +%Y-%m-%d)
+          {
+            echo ""
+            echo "### 배치 (최근 7일)"
+            echo ""
+            echo "| 워크플로 | 성공 | 실패 | 성공률 |"
+            echo "| --- | --- | --- | --- |"
+          } >> /tmp/metrics.md
+
+          for wf in refresh-region.yml backfill.yml geocode-queue.yml; do
+            # per_page 100이면 하루 4회 도는 워크플로의 7일치가 들어간다.
+            runs=$(curl -sS -H "authorization: Bearer $GH_TOKEN" \
+              -H 'accept: application/vnd.github+json' \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?per_page=100&created=>=$since")
+
+            # 워크플로가 아직 한 번도 안 돌았으면 404가 온다. 없는 것은 없다고 적는다.
+            if ! echo "$runs" | jq -e '.workflow_runs' > /dev/null 2>&1; then
+              echo "| $wf | — | — | 실행 없음 |" >> /tmp/metrics.md
+              continue
+            fi
+
+            ok=$(echo "$runs" | jq '[.workflow_runs[] | select(.conclusion=="success")] | length')
+            bad=$(echo "$runs" | jq '[.workflow_runs[] | select(.conclusion=="failure" or .conclusion=="timed_out")] | length')
+            total=$((ok + bad))
+            if [ "$total" -eq 0 ]; then
+              rate='실행 없음'
+            else
+              rate=$(awk "BEGIN{printf \"%.1f%%\", $ok*100/$total}")
+            fi
+            echo "| $wf | $ok | $bad | $rate |" >> /tmp/metrics.md
+          done
+
+          # 아직 못 재는 것은 못 잰다고 적는다. 표에 없으면 괜찮은 줄로 읽힌다.
+          {
+            echo ""
+            echo "### 아직 재지 못하는 것"
+            echo ""
+            echo "| 지표 | 막힌 이유 |"
+            echo "| --- | --- |"
+            echo "| 캐시 적중률 | 사용자 지정 도메인 전환(T6.3) 뒤에 Cloudflare 분석에서 볼 수 있다 |"
+            echo "| 국토부 쿼터 사용량 | 원천이 잔여량을 응답에 주지 않는다. 배포 로그의 호출 수로 추정한다 |"
+            echo "| 해시 실패율 | 수집 시점에만 관측된다. 배포가 보류로 끝난 횟수가 대리 지표다 |"
+          } >> /tmp/metrics.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 요약에 붙인다
+        run: cat /tmp/metrics.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: metrics
+          path: /tmp/metrics.md
+          retention-days: 90

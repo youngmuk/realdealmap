@@ -242,6 +242,8 @@ export class R2Client {
    */
   async list(prefix = '', continuationToken?: string): Promise<{
     readonly keys: readonly string[];
+    /** 이 페이지 객체들의 크기 합. 저장 용량을 재는 데 쓴다 (T6.5) */
+    readonly bytes: number;
     readonly nextToken: string | undefined;
   }> {
     const params = new URLSearchParams({ 'list-type': '2' });
@@ -267,6 +269,11 @@ export class R2Client {
     }
     return {
       keys: [...text.matchAll(/<Key>([^<]*)<\/Key>/g)].map((m) => m[1] ?? ''),
+      // 크기는 키와 같은 순서로 하나씩 온다. 합만 쓰므로 짝을 맞추지 않는다.
+      bytes: [...text.matchAll(/<Size>(\d+)<\/Size>/g)].reduce(
+        (sum, m) => sum + Number(m[1] ?? 0),
+        0,
+      ),
       nextToken: /<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(text)?.[1],
     };
   }
