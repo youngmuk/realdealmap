@@ -20,6 +20,7 @@ import {
   configFromEnv,
   coverageByDataset,
   coverageMarkdown,
+  comboKey,
   datasetKeys,
   evaluateG3,
   findMissing,
@@ -28,6 +29,7 @@ import {
   MolitClient,
   normalizeAll,
   publishRegion,
+  QuotaExceededError,
   readDictionary,
   readIndex,
   recentPeriods,
@@ -187,9 +189,31 @@ const main = async () => {
   const batches = [];
   let issues = 0;
   let calls = 0;
+  // 쿼터가 바닥난 유형. 그 유형은 이 회차에 한 건도 못 받으므로 남은 달도 시도하지 않는다.
+  const exhausted = new Set();
+  // 손도 못 댄 (유형 · 월) 조합. 배포에서 이전 매니페스트로 이어받게 한다.
+  const unattempted = [];
+
   for (const period of periods) {
     for (const key of datasetKeys()) {
-      const fetched = await molit.fetchAll(key, resolved, period);
+      if (exhausted.has(key)) {
+        unattempted.push(comboKey(key, period));
+        continue;
+      }
+
+      let fetched;
+      try {
+        fetched = await molit.fetchAll(key, resolved, period);
+      } catch (error) {
+        // 쿼터 소진은 이 유형만의 문제다. 여기서 지역 전체를 멈추면 이미 받은
+        // 나머지 여덟 유형을 버리게 되고, 내일 그것들을 다시 받느라 쿼터를 또 쓴다.
+        // 전국 적재에서 토지 매매 하나 때문에 지역 174곳이 그렇게 됐다.
+        if (!(error instanceof QuotaExceededError)) throw error;
+        exhausted.add(key);
+        unattempted.push(comboKey(key, period));
+        console.log(`  ${period}  ${key.padEnd(16)} 쿼터 소진 — 이 유형은 다음 회차로 미룬다`);
+        continue;
+      }
       calls += fetched.calls;
       const { transactions, failures } = normalizeAll(key, fetched.items);
       batches.push({ period, key, transactions });
@@ -242,7 +266,11 @@ const main = async () => {
   console.log('\n배포');
   // 이번에 시도한 달을 넘긴다. 그래야 나머지 달을 이전 매니페스트에서
   // 이어받는다 — 안 넘기면 최근 3개월 갱신 한 번이 12개월 적재를 지운다.
-  const result = await publishRegion(r2, resolved, chunks, { dryRun, periods });
+  const result = await publishRegion(r2, resolved, chunks, {
+    dryRun,
+    periods,
+    unattempted,
+  });
 
   if (result.hold) {
     const h = result.hold;
@@ -272,7 +300,11 @@ const main = async () => {
   }
 
   console.log(`
-호출 ${calls}회 · 수집 이슈 ${issues}건`);
+호출 ${calls}회 · 수집 이슈 ${issues}건${
+    unattempted.length > 0
+      ? ` · 쿼터로 미룬 조합 ${unattempted.length}개 (${[...exhausted].join(', ')})`
+      : ''
+  }`);
   summarize(
     [
       `### ${issues > 0 ? '⚠️' : '✅'} ${resolved} ${dryRun ? '(시험 실행)' : ''}`,
@@ -286,6 +318,9 @@ const main = async () => {
       `| 매니페스트 | ${result.manifestReplaced ? '교체됨' : '유지'} |`,
       `| 원천 호출 | ${calls}회 |`,
       `| 수집 이슈 | ${issues}건 |`,
+      `| 쿼터로 미룬 조합 | ${unattempted.length}개${
+        unattempted.length > 0 ? ` (${[...exhausted].join(', ')})` : ''
+      } |`,
       '',
       coverageMarkdown(resolved, coverage, gate),
     ].join('\n'),

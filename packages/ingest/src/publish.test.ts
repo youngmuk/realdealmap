@@ -10,6 +10,7 @@ import { normalizeAll, type Transaction } from './normalize.js';
 import { parseResponse } from './parse.js';
 import {
   carryOver,
+  comboKey,
   checkRecordDrop,
   findObsoleteChunks,
   findVanishedCombos,
@@ -553,6 +554,53 @@ describe('carryOver', () => {
 
   test('이전 매니페스트가 없으면 빈 목록', () => {
     expect(carryOver(undefined, ['202609'], 12, now)).toEqual([]);
+  });
+
+  // 전국 적재에서 실제로 겪은 것: 토지 매매만 일일 쿼터가 바닥났는데 나머지
+  // 여덟 유형이 멀쩡한 지역 174곳이 아무것도 배포하지 못했다.
+  describe('쿼터로 손도 못 댄 조합', () => {
+    const land = (month: string, records = 10): ManifestFile => ({
+      propertyType: 'land',
+      tradeType: 'sale',
+      month,
+      path: `v1/data/11680/${month}/land-sale.hash.json.gz`,
+      sha256: 'h',
+      bytes: 1,
+      records,
+    });
+
+    test('못 댄 유형은 이전 것을 이어받는다', () => {
+      const previous = manifest([file('202609'), land('202609', 40)]);
+
+      const kept = carryOver(previous, ['202609'], 12, now, [
+        comboKey('land/sale', '202609'),
+      ]);
+
+      // 아파트는 이번에 다시 만들었으니 빠지고, 토지는 손도 못 댔으니 남는다
+      expect(kept.map((f) => `${f.propertyType}/${f.tradeType}`)).toEqual(['land/sale']);
+    });
+
+    test('달이 다르면 이어받지 않는다', () => {
+      const previous = manifest([land('202609', 40)]);
+
+      const kept = carryOver(previous, ['202609'], 12, now, [
+        comboKey('land/sale', '202608'),
+      ]);
+
+      expect(kept).toEqual([]);
+    });
+
+    // 이것이 무너지면 R-14 방어가 통째로 사라진다. 쿼터로 못 댄 것과 원천이
+    // 조용히 0건을 준 것은 겉보기가 같고, 뒤엣것은 반드시 게이트에 걸려야 한다.
+    test('시도한 유형은 0건이어도 여전히 이어받지 않는다', () => {
+      const previous = manifest([file('202609', 500), land('202609', 40)]);
+
+      const kept = carryOver(previous, ['202609'], 12, now, [
+        comboKey('land/sale', '202609'),
+      ]);
+
+      expect(kept.map((f) => f.propertyType)).not.toContain('apartment');
+    });
   });
 });
 

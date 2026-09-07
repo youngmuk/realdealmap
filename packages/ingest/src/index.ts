@@ -63,6 +63,7 @@ export {
   findVanishedCombos,
   carryOver,
   manifestKey,
+  comboKey,
   publishRegion,
   PublishError,
   readManifest,

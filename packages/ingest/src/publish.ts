@@ -88,6 +88,13 @@ export interface PublishOptions {
    */
   readonly periods?: readonly string[];
   /**
+   * 쿼터가 바닥나 **손도 못 댄** 조합 (`comboKey('유형/거래', '연월')`).
+   *
+   * 이 조합은 이번에 시도하지 않은 것으로 쳐서 이전 매니페스트에서 이어받는다.
+   * 넘기지 않으면 못 받은 유형이 사라진 것으로 취급되어 게이트에 걸린다.
+   */
+  readonly unattempted?: readonly string[];
+  /**
    * 이번 배치에 없는 달을 이전 매니페스트에서 **몇 달까지 이어받을지**.
    *
    * 매니페스트는 그 지역에서 살아 있는 파일의 전체 목록이다. 이어받지 않으면
@@ -138,11 +145,35 @@ const sortFiles = (files: readonly ManifestFile[]): readonly ManifestFile[] =>
  * 보관 창(기본 12개월) 밖은 이어받지 않는다. 그것까지 들고 오면 매니페스트가
  * 영원히 자라고, 앱은 볼 일 없는 달을 계속 내려받는다.
  */
+/**
+ * (유형 · 월) 조합의 유일한 이름.
+ *
+ * 보류 사유를 사람에게 보일 때도, 이어받기에서 무엇을 손 못 댔는지 가릴 때도
+ * 같은 것을 쓴다. 두 자리에서 형식이 갈라지면 한쪽만 맞는 상태를 아무도 못 본다.
+ */
+export const comboKey = (datasetKey: string, month: string): string => `${datasetKey} ${month}`;
+
+const fileCombo = (f: ManifestFile): string =>
+  comboKey(`${f.propertyType}/${f.tradeType}`, f.month);
+
 export const carryOver = (
   previous: Manifest | undefined,
   attempted: readonly string[] | undefined,
   retainMonths: number,
   now: Date,
+  /**
+   * 시도하려 했으나 **손도 못 댄** 조합 (`comboKey`).
+   *
+   * 일일 쿼터가 바닥나면 그 유형은 그 회차에 한 건도 받지 못한다. 그것을
+   * "시도했는데 0건"과 같이 다루면 이전 것을 버리게 되고, 유형 하나가 통째로
+   * 사라진다 — 원천이 지운 것과 구별되지 않는다. 실제로 전국 적재에서 토지
+   * 매매만 쿼터가 바닥났는데, 나머지 여덟 유형이 멀쩡한 지역 174곳이 아무것도
+   * 배포하지 못했다.
+   *
+   * 그래서 못 댄 것은 안 시도한 것으로 친다. 원천이 조용히 0건을 준 경우(R-14)는
+   * 여전히 "시도했는데 0건"이라 그대로 게이트에 걸린다.
+   */
+  unattempted: readonly string[] = [],
 ): readonly ManifestFile[] => {
   // 무엇을 시도했는지 모르면 이어받지 않는다.
   //
@@ -152,9 +183,13 @@ export const carryOver = (
   if (!previous || retainMonths <= 0 || !attempted) return [];
 
   const rebuilt = new Set(attempted);
+  const untouched = new Set(unattempted);
   const keep = new Set(recentPeriods(now, Math.min(retainMonths, MAX_MONTHS)));
 
-  return previous.files.filter((f) => !rebuilt.has(f.month) && keep.has(f.month));
+  const wasRebuilt = (f: ManifestFile): boolean =>
+    rebuilt.has(f.month) && !untouched.has(fileCombo(f));
+
+  return previous.files.filter((f) => !wasRebuilt(f) && keep.has(f.month));
 };
 
 const totalRecordsOf = (files: readonly ManifestFile[]): number =>
@@ -197,10 +232,6 @@ export const checkRecordDrop = (
   return { kind: 'recordDrop', before, after: nextTotal, ratio };
 };
 
-/** 매니페스트 파일을 (유형 · 월)로 식별한다. 사람이 읽는 보류 사유에 그대로 쓴다. */
-const comboKey = (f: ManifestFile): string =>
-  `${f.propertyType}/${f.tradeType} ${f.month}`;
-
 /**
  * 사라진 (유형 · 월) 조합을 찾는다.
  *
@@ -220,12 +251,12 @@ export const findVanishedCombos = (
   next: readonly ManifestFile[],
 ): readonly string[] => {
   const months = new Set(next.map((f) => f.month));
-  const records = new Map(next.map((f) => [comboKey(f), f.records]));
+  const records = new Map(next.map((f) => [fileCombo(f), f.records]));
 
   const vanished = previous
     .filter((f) => f.records > 0 && months.has(f.month))
-    .filter((f) => (records.get(comboKey(f)) ?? 0) === 0)
-    .map(comboKey);
+    .filter((f) => (records.get(fileCombo(f)) ?? 0) === 0)
+    .map(fileCombo);
 
   return [...new Set(vanished)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 };
@@ -259,6 +290,7 @@ export const publishRegion = async (
     ttlSeconds = 3600,
     retainMonths = MAX_MONTHS,
     periods,
+    unattempted = [],
     dryRun = false,
     now = () => new Date(),
   } = options;
@@ -275,7 +307,7 @@ export const publishRegion = async (
   const fresh = chunks.map(toManifestFile);
   const files = sortFiles([
     ...fresh,
-    ...carryOver(previous, periods, retainMonths, now()),
+    ...carryOver(previous, periods, retainMonths, now(), unattempted),
   ]);
   const totalRecords = totalRecordsOf(files);
   const manifest: Manifest = {
