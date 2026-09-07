@@ -70,6 +70,45 @@ describe('repository_dispatch 호출', () => {
   });
 });
 
+/**
+ * 완료 콜백의 비밀 비교.
+ *
+ * `index.ts`의 `timingSafeEqual`은 모듈 내부라 직접 못 부른다. 같은 성질을
+ * 여기서 재현해 잠근다 — 실제 구현이 이 성질을 잃으면 배포 후에야 드러난다.
+ */
+const timingSafeEqual = (a: string, b: string): boolean => {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+};
+
+describe('콜백 비밀 비교', () => {
+  test('같으면 통과한다', () => {
+    expect(timingSafeEqual('s3cr3t', 's3cr3t')).toBe(true);
+  });
+
+  test.each([
+    ['s3cr3t', 's3cr3T'],
+    ['s3cr3t', 's3cr3'],
+    ['s3cr3t', 's3cr3tt'],
+    ['s3cr3t', ''],
+    ['', 's3cr3t'],
+  ])('%s vs %s 는 거부한다', (a, b) => {
+    expect(timingSafeEqual(a, b)).toBe(false);
+  });
+
+  // 앞부분만 맞아도 통과하면 한 글자씩 맞춰 갈 수 있다.
+  test('접두사가 같아도 통과하지 않는다', () => {
+    expect(timingSafeEqual('abcdef', 'abcxyz')).toBe(false);
+  });
+
+  test('빈 문자열끼리는 통과하지만 호출부가 먼저 막는다', () => {
+    // Worker는 CALLBACK_SECRET이 비어 있으면 경로 자체를 404로 닫는다.
+    expect(timingSafeEqual('', '')).toBe(true);
+  });
+});
+
 describe('판정과 응답의 대응', () => {
   // §5.2의 계약: 이미 돌고 있는 것은 오류가 아니라 202 + alreadyRunning 이다.
   test('running은 실패가 아니다', () => {

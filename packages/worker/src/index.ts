@@ -21,6 +21,8 @@ export default {
     // 기본 상태코드가 202인 이유는 트리거 응답이 전부 "접수됨"이기 때문이다.
     // 헬스체크는 그 의미가 아니므로 200을 명시한다.
     if (url.pathname === '/health') return json({ ok: true }, 200);
+    if (url.pathname === '/v1/refresh/done') return done(request, env);
+
     if (url.pathname !== '/v1/refresh') return json({ error: 'not_found' }, 404);
     if (request.method !== 'POST') {
       return json({ error: 'method_not_allowed' }, 405, { allow: 'POST' });
@@ -55,7 +57,7 @@ export default {
     } catch (error) {
       // 깨우기에 실패했으면 잠금을 즉시 푼다. 안 그러면 아무 일도 안 일어난 채
       // 그 지역이 최소 간격 동안 막힌다.
-      await region.finish();
+      await region.finish('dispatch_failed');
       const status = error instanceof DispatchError ? 502 : 500;
       return json({ error: 'dispatch_failed' }, status);
     }
@@ -65,6 +67,53 @@ export default {
     return json({ accepted: true, alreadyRunning: false, etaSeconds: ETA_SECONDS });
   },
 } satisfies ExportedHandler<Env>;
+
+/**
+ * 갱신 완료 콜백. Actions가 끝나면서 부른다.
+ *
+ * **상태를 바꾸는 엔드포인트라 인증이 필요하다.** 인증이 없으면 아무나 `running`을
+ * 내릴 수 있고, 그 자체로 큰 피해는 없지만(최소 간격 게이트가 따로 있다)
+ * 상태를 남이 조작할 수 있게 두는 것은 그 자체로 결함이다.
+ *
+ * 비밀이 설정돼 있지 않으면 **경로를 아예 닫는다.** 인증 없는 상태 변경 엔드포인트를
+ * 열어 두느니 기능을 끄는 편이 낫다 — 콜백이 없어도 잠금은 시간으로 만료된다.
+ */
+const done = async (request: Request, env: Env): Promise<Response> => {
+  if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, { allow: 'POST' });
+  if (!env.CALLBACK_SECRET) return json({ error: 'not_found' }, 404);
+
+  const presented = (request.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
+  if (!timingSafeEqual(presented, env.CALLBACK_SECRET)) {
+    return json({ error: 'unauthorized' }, 401);
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'bad_request' }, 400);
+  }
+  const record = (body ?? {}) as Record<string, unknown>;
+  if (!isValidSggCd(record.sggCd)) return json({ error: 'invalid_sgg' }, 400);
+
+  const outcome = typeof record.outcome === 'string' ? record.outcome.slice(0, 32) : 'unknown';
+  await env.REGION_TRIGGER.get(env.REGION_TRIGGER.idFromName(record.sggCd)).finish(outcome);
+  return json({ ok: true }, 200);
+};
+
+/**
+ * 길이와 내용을 상수 시간에 비교한다.
+ *
+ * `===`로 비교하면 앞에서부터 다른 지점에 따라 반환 시간이 달라져, 원격에서도
+ * 한 글자씩 맞춰 갈 여지가 생긴다. 실제로 짜내기 어렵더라도 비밀 비교는
+ * 상수 시간으로 두는 것이 기본이다.
+ */
+const timingSafeEqual = (a: string, b: string): boolean => {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+};
 
 /**
  * 본문에서 시군구 코드를 꺼낸다.

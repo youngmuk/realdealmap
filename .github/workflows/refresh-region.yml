@@ -128,3 +128,26 @@ jobs:
         env:
           CODE: ${{ steps.publish.outputs.code }}
           DRY_RUN: ${{ inputs.dryRun && '1' || '' }}
+
+      # 갱신이 끝났음을 Worker에 알린다.
+      #
+      # 잠금을 푸는 것이 목적이 아니다 — 최소 간격(60분)이 잠금 만료(30분)보다 길어서
+      # 잠금이 게이트를 좌우한 적은 없다. 값어치는 **앱에게 사실대로 답하는 것**이다.
+      # 콜백이 없으면 40초 전에 끝난 갱신을 두고 "지금 돌고 있다"고 알려주게 된다.
+      #
+      # `always()`라 실패·보류로 끝나도 반드시 보낸다. 여기서 안 보내면 그 지역이
+      # 실제로는 멈췄는데 도는 것처럼 보인다.
+      - name: 완료 알림
+        if: always() && env.CALLBACK_SECRET != ''
+        continue-on-error: true
+        run: |
+          # 본문은 jq로 만든다. 셸 안에서 JSON을 따옴표로 조립하면
+          # 값에 따옴표가 섞였을 때 조용히 깨진다.
+          body=$(jq -nc --arg s "$SGG_CD" --arg o "$OUTCOME" '{sggCd:$s, outcome:$o}')
+          code=$(curl -sS -X POST "$WORKER_URL/v1/refresh/done" -H "authorization: Bearer $CALLBACK_SECRET" -H 'content-type: application/json' -d "$body" -o /dev/null -w '%{http_code}')
+          echo "완료 알림 → HTTP $code"
+        env:
+          WORKER_URL: https://realdealmap-trigger.jsmgames.workers.dev
+          CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
+          SGG_CD: ${{ inputs.sggCd || github.event.client_payload.sggCd }}
+          OUTCOME: ${{ job.status }}

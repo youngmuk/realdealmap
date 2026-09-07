@@ -31,14 +31,15 @@ export class RegionTrigger extends DurableObject<Env> {
   }
 
   /**
-   * 갱신이 끝났다고 표시한다.
+   * 갱신이 끝났다고 표시한다. Actions가 완료 콜백으로 부른다.
    *
-   * Actions가 끝나면 이걸 불러 줘야 다음 트리거가 통과한다. 다만 **부르지 않아도
-   * 영구히 막히지는 않는다** — `running`은 최소 간격이 지나면 무의미해지고,
-   * 워크플로가 죽어 콜백이 영영 안 올 수도 있기 때문이다(아래 `#read` 참조).
+   * **잠금을 푸는 것이 목적이 아니다.** 최소 간격(60분)이 잠금 만료(30분)보다 길어서
+   * 잠금이 게이트를 좌우한 적은 없다 — 어차피 `fresh`에서 걸린다.
+   * 이 호출의 값어치는 **앱에게 사실대로 답하는 것**이다. 콜백이 없으면 40초 전에
+   * 끝난 갱신을 두고 "지금 돌고 있다"고 알려주게 되고, 앱은 기다릴 이유가 없는데 기다린다.
    */
-  async finish(): Promise<void> {
-    await this.ctx.storage.put({ running: false });
+  async finish(outcome: string): Promise<void> {
+    await this.ctx.storage.put({ running: false, lastOutcome: outcome, finishedAt: Date.now() });
   }
 
   async state(): Promise<RegionState> {
@@ -99,4 +100,9 @@ export interface Env {
   /** repository_dispatch용 GitHub 토큰. wrangler secret으로만 넣는다 */
   readonly GITHUB_DISPATCH_TOKEN: string;
   readonly GITHUB_REPO: string;
+  /**
+   * 완료 콜백을 인증하는 공유 비밀. 비어 있으면 콜백 경로를 아예 닫는다 —
+   * 인증 없는 상태 변경 엔드포인트를 열어 두느니 기능을 끄는 편이 낫다.
+   */
+  readonly CALLBACK_SECRET: string;
 }
