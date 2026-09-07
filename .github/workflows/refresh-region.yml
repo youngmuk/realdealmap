@@ -43,9 +43,16 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      # 액션을 태그가 아니라 커밋 SHA로 고정한다.
+      #
+      # `@v4`는 움직이는 태그다. 액션 저장소가 탈취되면 태그를 재바인딩하는 것만으로
+      # 이 잡에 임의 코드가 들어오고, 그 잡은 국토부 인증키와 R2 자격증명을 쥐고 있다.
+      # 공식 액션이라 확률은 낮지만 대가가 크고, 액션이 둘뿐이라 유지 비용은 거의 없다.
+      #
+      # 갱신할 때는 태그가 가리키는 SHA를 직접 확인하고 옆의 주석도 함께 고친다.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
