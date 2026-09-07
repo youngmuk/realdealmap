@@ -8,6 +8,7 @@ import 'data/sync/refresh_trigger.dart';
 import 'data/sync/region_index.dart';
 import 'data/sync/sync_engine.dart';
 import 'format.dart';
+import 'features/about/about_sheet.dart';
 import 'features/filter/filter_sheet.dart';
 import 'features/list/list_page.dart';
 import 'features/map/map_page.dart';
@@ -178,8 +179,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         bottom: PreferredSize(
           // 글자 배율을 태운다. 30으로 고정하면 배율이 커졌을 때 기준 시각이
           // 잘려 "오프라인 (저장된 데이…"가 된다 — 잘린 경고는 경고가 아니다.
+          //
+          // 기준 시각 두 줄(30)에 참고용 고지 한 줄을 더한다 (T6.6 · G6).
           preferredSize: Size.fromHeight(
-            MediaQuery.textScalerOf(context).scale(30),
+            MediaQuery.textScalerOf(context).scale(30 + kAboutBannerHeight),
           ),
           child: const _StatusBar(),
         ),
@@ -198,11 +201,14 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   }
 }
 
-/// 데이터 기준 시각을 **상시 노출한다** (T5.8).
+/// 데이터 기준 시각과 참고용 고지를 **상시 노출한다** (T5.8 · T6.6).
 ///
 /// 실거래가는 값이 시각에 매인 데이터다. "언제 것인지"를 감추면 사용자는
 /// 지금 시세로 읽는다. 갱신 중·오프라인도 여기서 같이 말한다 —
 /// 조용히 실패해서 옛 데이터를 새것처럼 보여주는 것이 가장 나쁘다.
+///
+/// 여기에 둔 이유는 **지도와 목록 두 탭 모두에서 항상 보이는 유일한 자리**라서다.
+/// 지도 범례에 두면 목록 탭에서 사라지고, 그때 고지는 상시가 아니게 된다.
 class _StatusBar extends ConsumerWidget {
   const _StatusBar();
 
@@ -213,24 +219,31 @@ class _StatusBar extends ConsumerWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (sync.running)
-            const SizedBox(
-              width: 10,
-              height: 10,
-              child: CircularProgressIndicator(strokeWidth: 1.6),
-            ),
-          if (sync.running) const SizedBox(width: 7),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(fontSize: 11.5, color: color),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+          Row(
+            children: [
+              if (sync.running)
+                const SizedBox(
+                  width: 10,
+                  height: 10,
+                  child: CircularProgressIndicator(strokeWidth: 1.6),
+                ),
+              if (sync.running) const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  text,
+                  style: TextStyle(fontSize: 11.5, color: color),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
+          const AboutBanner(),
         ],
       ),
     );
