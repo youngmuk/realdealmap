@@ -1,4 +1,8 @@
-import { isQueryableSggCd } from '@realdealmap/shared';
+// 배럴(`@realdealmap/shared`)이 아니라 생성 모듈을 직접 가리킨다.
+// 배럴은 `regions.ts`를 재수출하고 그건 node:fs를 쓴다 — Worker에는 파일시스템이 없다.
+// 지금은 번들러가 트리셰이킹으로 걷어내 주지만, 그건 보장이 아니라 우연이다.
+// 배럴에 side-effect 있는 모듈이 하나만 추가돼도 조용히 깨진다.
+import { isQueryableSggCd } from '@realdealmap/shared/codes';
 
 /**
  * 트리거 정책 — 순수 함수만 둔다.

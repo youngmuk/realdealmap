@@ -18,7 +18,9 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === '/health') return json({ ok: true });
+    // 기본 상태코드가 202인 이유는 트리거 응답이 전부 "접수됨"이기 때문이다.
+    // 헬스체크는 그 의미가 아니므로 200을 명시한다.
+    if (url.pathname === '/health') return json({ ok: true }, 200);
     if (url.pathname !== '/v1/refresh') return json({ error: 'not_found' }, 404);
     if (request.method !== 'POST') {
       return json({ error: 'method_not_allowed' }, 405, { allow: 'POST' });
