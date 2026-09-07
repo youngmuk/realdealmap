@@ -30,8 +30,15 @@ double clusterRadius(int count) {
 }
 
 /// 이 묶음을 그릴 아이콘 이름. 같은 이름이면 이미 올린 이미지를 그대로 쓴다.
+String clusterLabel(int count) {
+  if (count < 100) return '$count';
+  if (count >= 1000) return '999+';
+  return '${count ~/ 10 * 10}+';
+}
+
+/// 이 묶음을 그릴 아이콘 이름. 같은 이름이면 이미 올린 이미지를 그대로 쓴다
 String clusterIconName(int count, bool approximate) =>
-    'rdm-c-$count-${approximate ? 'a' : 'e'}';
+    'rdm-c-${clusterLabel(count)}-${approximate ? 'a' : 'e'}';
 
 /// 필요한 아이콘을 스타일에 올린다. 이미 올린 것은 건너뛴다.
 ///
@@ -42,14 +49,20 @@ Future<void> ensureClusterIcons(
   Iterable<({int count, bool approximate})> needed,
   Set<String> added,
 ) async {
+  // 한 줄씩 기다리지 않는다. 줌을 크게 바꾸면 새 숫자가 수십 개씩 한꺼번에
+  // 나오는데, 순차로 기다리면 그만큼 지도 갱신이 늦어진다.
+  final work = <Future<void>>[];
   for (final item in needed) {
     final name = clusterIconName(item.count, item.approximate);
     if (!added.add(name)) continue;
-    await controller.addImage(
-      name,
-      await _drawBadge(item.count, item.approximate),
+    work.add(
+      _drawBadge(
+        item.count,
+        item.approximate,
+      ).then((bytes) => controller.addImage(name, bytes)),
     );
   }
+  await Future.wait(work);
 }
 
 Future<Uint8List> _drawBadge(int count, bool approximate) async {
@@ -81,8 +94,7 @@ Future<Uint8List> _drawBadge(int count, bool approximate) async {
           : const Color(0xFFFFFFFF).withValues(alpha: 0.85),
   );
 
-  // 네 자리가 넘으면 원 밖으로 삐져나간다. 정확한 숫자보다 읽히는 것이 낫다
-  final label = count > 999 ? '999+' : '$count';
+  final label = clusterLabel(count);
   final painter = TextPainter(
     text: TextSpan(
       text: label,

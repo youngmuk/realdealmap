@@ -45,6 +45,9 @@ END
 ''',
 ];
 
+/// 한 화면에 그릴 최대 건수. 넘으면 잘리고, 잘렸다는 사실을 화면이 밝힌다.
+const int kPinLimit = 5000;
+
 /// 지도 한 화면에 그릴 거래.
 ///
 /// 상세화면이 쓰는 `raw`는 싣지 않는다. 마커 3,000개를 그리는데 원문 JSON까지
@@ -112,6 +115,10 @@ class AppDatabase extends _$AppDatabase {
   ///
   /// [limit]은 그리기 폭주를 막는 안전장치다. 서울 전역을 한 화면에 담으면
   /// 수만 건이 나오는데, 그 줌에서는 어차피 개별 마커를 그리지 않는다.
+  ///
+  /// **정렬을 붙인 이유**: 없으면 어느 것이 잘릴지가 R*Tree 순회 순서에 달려
+  /// 호출마다 달라진다. 같은 자리를 봐도 묶음 개수가 미세하게 흔들린다.
+  /// 결과가 [limit]과 같으면 잘린 것이고, 화면은 그 사실을 밝혀야 한다.
   Future<List<MapPin>> pinsInBounds({
     required double south,
     required double north,
@@ -122,7 +129,7 @@ class AppDatabase extends _$AppDatabase {
     int? minAmount,
     int? maxAmount,
     Set<String>? months,
-    int limit = 5000,
+    int limit = kPinLimit,
   }) async {
     final filters = <String>[];
     final vars = <Variable<Object>>[
@@ -163,6 +170,7 @@ class AppDatabase extends _$AppDatabase {
       JOIN tx_rows t ON t.rid = g.id
       WHERE g.maxLat >= ? AND g.minLat <= ? AND g.maxLng >= ? AND g.minLng <= ?
       ${filters.join(' ')}
+      ORDER BY t.rid
       LIMIT ?
       ''',
       variables: vars,

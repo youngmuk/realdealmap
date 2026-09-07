@@ -213,30 +213,63 @@ class SyncController extends Notifier<SyncState> {
   @override
   SyncState build() => const SyncState();
 
+  /// 지금 도는 지역. 없으면 노는 중이다
+  String? _running;
+
+  /// 도는 중에 새로 들어온 지역. 끝나면 이어서 한다
+  String? _pending;
+
   /// 지역을 동기화하고, 데이터가 낡았으면 서버에 갱신을 **던져만 둔다**.
   ///
   /// 트리거 응답을 기다려 화면을 막지 않는다. 지금 있는 데이터로 그리는 것이
   /// 먼저고, 새 데이터는 다음 진입에서 붙는다(FR-4 · FR-5).
+  ///
+  /// **겹쳐 들어온 요청을 버리지 않는다.** 예전에는 도는 중이면 그냥 돌아갔는데,
+  /// 지도를 밀어 다른 지역으로 넘어가면 그 지역의 동기화가 조용히 사라졌다.
+  /// 지역 선택은 이미 바뀌어 있으니 재시도도 걸리지 않아, 앱을 다시 켜기 전까지
+  /// 그 지역은 영원히 빈 화면이었다 — 데이터가 없는 것과 구별되지 않는 실패다.
   Future<void> syncRegion(String sggCd, {bool trigger = true}) async {
-    if (state.running) return;
-    state = state.copyWith(running: true);
+    if (_running != null) {
+      if (_running != sggCd) _pending = sggCd;
+      return;
+    }
 
+    var target = sggCd;
+    _running = target;
+    state = state.copyWith(running: true);
+    try {
+      while (true) {
+        await _syncOnce(target, trigger);
+        final next = _pending;
+        _pending = null;
+        if (next == null || next == target) break;
+        target = next;
+        _running = target;
+      }
+    } finally {
+      _running = null;
+      state = state.copyWith(running: false);
+    }
+  }
+
+  Future<void> _syncOnce(String sggCd, bool trigger) async {
     final outcome = await ref.read(syncEngineProvider).sync(sggCd);
     final manifest = outcome.manifest;
 
+    // 서버에 못 닿았으면 **이 지역에 저장해 둔 기준 시각**을 쓴다.
+    //
+    // 들고 있던 값(state.refreshedAt)보다 먼저 본다. 지역을 바꾼 직후에는 그것이
+    // 이전 지역의 시각이라, 앞세우면 새 지역에 남의 시각을 붙이게 된다.
+    final refreshedAt =
+        manifest?.refreshedAt ??
+        await _storedRefreshedAt(sggCd) ??
+        state.refreshedAt;
+
     state = SyncState(
-      running: false,
+      running: true,
       last: outcome.status,
       message: outcome.message,
-      // 서버에 못 닿았으면 **저장해 둔 기준 시각**을 쓴다.
-      //
-      // 이것을 안 하면 오프라인 재실행에서 "기준 시각 없음"이 뜬다. 데이터는
-      // 그대로 있고 언제 것인지도 알고 있는데 모른다고 말하는 셈이라,
-      // 실거래가에서는 이 한 줄이 데이터 자체만큼 중요하다.
-      refreshedAt:
-          manifest?.refreshedAt ??
-          state.refreshedAt ??
-          await _storedRefreshedAt(sggCd),
+      refreshedAt: refreshedAt,
       triggered: state.triggered,
     );
 

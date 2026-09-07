@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 
 import '../../config.dart';
+import '../../data/db/database.dart';
 import '../../data/sync/region_index.dart' as idx;
 import '../../state/app_state.dart';
 import '../../state/filters.dart';
@@ -50,6 +51,18 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// 이미 스타일에 올린 아이콘 이름. 없으면 화면을 옮길 때마다 다시 그린다.
   final _icons = <String>{};
 
+  /// 스타일을 세우는 중인가. 콜백이 겹쳐 들어오는 것을 막는다
+  bool _styling = false;
+
+  /// 뷰포트 갱신의 순번. 늦게 끝난 옛 요청이 새 결과를 덮어쓰지 못하게 한다
+  int _viewportSeq = 0;
+
+  /// 화면 안 거래가 상한에 걸려 잘렸는가
+  bool _truncated = false;
+
+  /// 필터가 연속으로 바뀔 때(가격 슬라이더) 매번 다시 그리지 않는다
+  Timer? _filterDebounce;
+
   /// 저장된 카메라가 없던 첫 진입인가. 있으면 사용자가 보던 자리를 지킨다 —
   /// 위치를 잡았다고 보던 화면을 빼앗지 않는다.
   bool _placeOnFirstRegion = false;
@@ -71,14 +84,45 @@ class _MapPageState extends ConsumerState<MapPage> {
   void dispose() {
     _regionDebounce?.cancel();
     _viewportDebounce?.cancel();
+    _filterDebounce?.cancel();
+    _controller?.onFeatureTapped.remove(_onFeatureTapped);
     super.dispose();
   }
 
   // ------------------------------------------------------------------ 카메라
 
+  /// 스타일이 준비될 때마다 소스와 레이어를 **다시 세운다**.
+  ///
+  /// 이 콜백은 한 번만 오지 않는다. 스타일이 다시 로드되면(저메모리 복귀 등)
+  /// 소스·레이어·이미지가 전부 사라진 채로 다시 불린다. 그래서 "이미 했으면
+  /// 건너뛴다"는 가드는 틀렸다 — 그러면 다시 로드된 뒤 지도가 영영 비어 있다.
+  /// 대신 남아 있을지 모르는 것을 지우고 새로 만든다. 두 경우 모두에서 맞는
+  /// 유일한 길이고, 리스너 중복 등록(탭 한 번에 상세가 두 번 열림)도 막는다.
   Future<void> _onStyleLoaded() async {
     final controller = _controller;
-    if (controller == null) return;
+    if (controller == null || _styling) return;
+    _styling = true;
+    _styleReady = false;
+    try {
+      await _rebuildStyle(controller);
+    } finally {
+      _styling = false;
+    }
+  }
+
+  Future<void> _rebuildStyle(ml.MapLibreMapController controller) async {
+    for (final id in [_clusterLayer, _pinLayer, _approxLayer]) {
+      // 없으면 없는 대로다. 있는지 묻고 지우는 것보다 지우고 넘어가는 편이 짧다
+      try {
+        await controller.removeLayer(id);
+      } on Exception catch (_) {}
+    }
+    try {
+      await controller.removeSource(_sourceId);
+    } on Exception catch (_) {}
+    // 이미지도 스타일과 함께 사라진다. 올렸다고 기억하고 있으면 다시 올리지 않아
+    // 묶음 마커가 통째로 안 그려진다
+    _icons.clear();
 
     // **`addGeoJsonSource`여야 한다.** `addSource`로 만든 소스는
     // `setGeoJsonSource`로 갱신해도 렌더러에 닿지 않는다 (실기기 확인:
@@ -169,6 +213,7 @@ class _MapPageState extends ConsumerState<MapPage> {
     // 빈 URL로 나가 실패하면 **그 소스의 레이어가 통째로 사라진다** — 오류 하나 없이
     // 지도만 비어 보였다 (logcat: Mbgl-HttpRequest 'Unable to parse resourceUrl').
     // 개수는 원 크기로 읽히게 두고, 글자는 글리프를 우리 R2에 올린 뒤에 붙인다.
+    controller.onFeatureTapped.remove(_onFeatureTapped);
     controller.onFeatureTapped.add(_onFeatureTapped);
     _styleReady = true;
     await _syncViewport();
@@ -238,6 +283,11 @@ class _MapPageState extends ConsumerState<MapPage> {
     final controller = _controller;
     if (controller == null || !_styleReady || !mounted) return;
 
+    // 카메라 정지·필터 변경·동기화 완료가 각각 이 함수를 부른다. 겹쳤을 때
+    // **늦게 끝난 옛 요청이 새 결과를 덮어쓰면** 사용자는 방금 바꾼 필터가
+    // 적용되지 않은 화면을 본다. 순번을 들고 가서 뒤처진 것은 버린다.
+    final seq = ++_viewportSeq;
+
     final bounds = await controller.getVisibleRegion();
     final zoom = controller.cameraPosition?.zoom ?? 13.5;
     final filter = ref.read(filterProvider);
@@ -273,9 +323,18 @@ class _MapPageState extends ConsumerState<MapPage> {
           .map((f) => (count: f.count, approximate: f.approximate)),
       _icons,
     );
-    if (!mounted) return;
+    if (!mounted || seq != _viewportSeq) return;
     await controller.setGeoJsonSource(_sourceId, _toCollection(clustered));
-    if (mounted && pins.length != _drawn) setState(() => _drawn = pins.length);
+
+    final truncated = pins.length >= kPinLimit;
+    if (mounted &&
+        seq == _viewportSeq &&
+        (pins.length != _drawn || truncated != _truncated)) {
+      setState(() {
+        _drawn = pins.length;
+        _truncated = truncated;
+      });
+    }
   }
 
   // ------------------------------------------------------------------ 탭
@@ -349,7 +408,12 @@ class _MapPageState extends ConsumerState<MapPage> {
   Widget build(BuildContext context) {
     // 필터가 바뀌면 지도를 다시 칠한다. 목록과 지도가 같은 필터를 봐야
     // "목록에는 있는데 지도에 없다"가 좌표 때문임이 분명해진다.
-    ref.listen(filterProvider, (_, _) => unawaited(_syncViewport()));
+    // 가격 슬라이더를 끌면 구간마다 새 필터가 나온다. 그때마다 DB를 다시 읽고
+    // 소스를 갈아 끼우면 손가락보다 화면이 늦는다.
+    ref.listen(filterProvider, (_, _) {
+      _filterDebounce?.cancel();
+      _filterDebounce = Timer(kViewportDebounce, () => _syncViewport());
+    });
 
     // 색인이 도착하면 그때 한 번 더 판정한다.
     //
@@ -422,7 +486,7 @@ class _MapPageState extends ConsumerState<MapPage> {
           bottom: 12,
           child: Align(
             alignment: Alignment.bottomLeft,
-            child: _Legend(drawn: _drawn),
+            child: _Legend(drawn: _drawn, truncated: _truncated),
           ),
         ),
       ],
@@ -482,8 +546,11 @@ Map<String, dynamic> _toCollection(List<MapFeature> features) => {
 
 /// 범례. 색이 뜻을 가지므로 뜻을 밝히지 않으면 장식이 된다.
 class _Legend extends StatelessWidget {
-  const _Legend({required this.drawn});
+  const _Legend({required this.drawn, required this.truncated});
   final int drawn;
+
+  /// 상한에 걸려 일부만 그렸는가. **감추면 사용자는 그것이 전부인 줄 안다**
+  final bool truncated;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -510,8 +577,13 @@ class _Legend extends StatelessWidget {
         ),
         const SizedBox(height: 5),
         Text(
-          '화면 안 $drawn건 · 옅은 원은 법정동 근사',
-          style: const TextStyle(fontSize: 10.5, color: Palette.ink3),
+          truncated
+              ? '화면 안 $drawn건까지만 표시 · 확대하면 전부 보입니다'
+              : '화면 안 $drawn건 · 옅은 원은 법정동 근사',
+          style: TextStyle(
+            fontSize: 10.5,
+            color: truncated ? Palette.warn : Palette.ink3,
+          ),
         ),
       ],
     ),
