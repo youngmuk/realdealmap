@@ -10,7 +10,7 @@
  *
  * 자격증명은 .env에서 읽고 화면에 내지 않는다.
  */
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,8 +28,18 @@ import {
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
+/**
+ * 로컬은 `.env`, CI는 환경변수(GitHub Secrets)에서 읽는다.
+ * 파일이 없는 것은 정상이므로 조용히 넘어간다 — CI에는 애초에 없다.
+ */
 const loadEnv = () => {
-  const raw = readFileSync(resolve(ROOT, '.env'), 'utf8');
+  let raw;
+  try {
+    raw = readFileSync(resolve(ROOT, '.env'), 'utf8');
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    return;
+  }
   for (const line of raw.split(/\r?\n/)) {
     const m = /^([A-Z0-9_]+)=(.*)$/.exec(line);
     if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
@@ -43,6 +53,20 @@ const readServiceKey = () => {
 };
 
 const pad = (v, w) => String(v).padStart(w);
+
+/**
+ * 종료 코드를 구분한다. CI가 "무엇 때문에 멈췄는지"를 로그를 읽지 않고 알아야 한다.
+ * 보류(2)는 실패가 아니라 **의도한 중단**이지만, 사람이 봐야 하므로 0을 주지 않는다.
+ */
+const EXIT = { ok: 0, error: 1, held: 2, issues: 3 };
+
+/** GitHub Actions에서 실행 중이면 잡 요약에 남긴다. 로컬에서는 아무것도 안 한다. */
+const summarize = (markdown) => {
+  const path = process.env.GITHUB_STEP_SUMMARY;
+  if (!path) return;
+  appendFileSync(path, `${markdown}
+`, 'utf8');
+};
 
 const main = async () => {
   loadEnv();
@@ -101,7 +125,14 @@ const main = async () => {
         ? `  보류 — 건수 급락 ${h.before} → ${h.after} (${(h.ratio * 100).toFixed(1)}%). 매니페스트를 바꾸지 않았다.`
         : `  보류 — 업로드 상한 초과 ${h.needed} > ${h.cap}. 매니페스트를 바꾸지 않았다.`,
     );
-    process.exitCode = 1;
+    summarize(
+      h.kind === 'recordDrop'
+        ? `### ⛔ ${resolved} 배포 보류
+건수 급락 **${h.before} → ${h.after}** (${(h.ratio * 100).toFixed(1)}%). 매니페스트를 바꾸지 않았다.`
+        : `### ⛔ ${resolved} 배포 보류
+업로드 상한 초과 **${h.needed} > ${h.cap}**. 매니페스트를 바꾸지 않았다.`,
+    );
+    process.exitCode = EXIT.held;
     return;
   }
 
@@ -118,10 +149,25 @@ const main = async () => {
 
   console.log(`
 호출 ${calls}회 · 수집 이슈 ${issues}건`);
-  process.exitCode = issues > 0 ? 1 : 0;
+  summarize(
+    [
+      `### ${issues > 0 ? '⚠️' : '✅'} ${resolved} ${dryRun ? '(시험 실행)' : ''}`,
+      '',
+      '| 항목 | 값 |',
+      '| --- | --- |',
+      `| 계약월 | ${periods.join(', ')} |`,
+      `| 총 건수 | ${result.totalRecords.toLocaleString()} |`,
+      `| 청크 | ${result.manifest.files.length}개 |`,
+      `| 업로드 | ${result.uploaded.length}건 (건너뜀 ${result.skipped.length}) |`,
+      `| 매니페스트 | ${result.manifestReplaced ? '교체됨' : '유지'} |`,
+      `| 원천 호출 | ${calls}회 |`,
+      `| 수집 이슈 | ${issues}건 |`,
+    ].join('\n'),
+  );
+  process.exitCode = issues > 0 ? EXIT.issues : EXIT.ok;
 };
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
+  process.exitCode = EXIT.error;
 });

@@ -1,0 +1,109 @@
+name: refresh-region
+
+# 한 시군구의 최근 N개월을 수집해 R2에 배포한다.
+#
+# 갱신 단위가 시군구인 이유는 매니페스트가 지역 단위이기 때문이다.
+# 앱은 `v1/regions/{sggCd}/manifest.json` 하나를 보고 TTL을 판정하므로,
+# 그 파일을 바꾸는 작업이 이 워크플로 하나로 모여 있어야 경쟁이 생기지 않는다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sggCd:
+        description: '시군구 코드 5자리 (예: 11680 강남구). 폐지 코드를 넣으면 현행 코드로 보정된다'
+        required: true
+        type: string
+      months:
+        description: '최근 몇 개월분을 배포할지'
+        required: false
+        default: '3'
+        type: string
+      dryRun:
+        description: '올리지 않고 계획만 확인한다'
+        required: false
+        default: false
+        type: boolean
+
+# 같은 지역을 동시에 갱신하면 매니페스트가 서로를 덮어쓴다.
+#
+# cancel-in-progress를 **끄는 것이 중요하다.** 진행 중인 실행을 취소하면
+# 청크는 올라갔는데 매니페스트는 안 바뀐 상태에서 끊길 수 있다. 그 자체는 안전하지만
+# (매니페스트가 옛 청크를 가리키므로 앱은 멀쩡하다) 헛돈 호출이 쿼터를 먹는다.
+# 뒤에 온 실행을 기다리게 하는 편이 낫다 — 어차피 같은 지역의 중복 갱신은 무의미하다.
+concurrency:
+  group: sgg-${{ inputs.sggCd }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 의존성 설치
+        run: npm ci
+
+      # 스크립트가 dist를 import한다. typecheck가 곧 빌드다(tsc --build).
+      - name: 빌드
+        run: npm run typecheck
+
+      - name: 입력 검증
+        # 원천은 잘못된 요청에도 200·0건으로 답한다(R-14). 오타가 "거래 없음"으로
+        # 위장되므로 워크플로 입구에서 형식부터 막는다.
+        run: |
+          if ! [[ "$SGG_CD" =~ ^[0-9]{5}$ ]]; then
+            echo "::error::시군구 코드가 5자리 숫자가 아닙니다: $SGG_CD"
+            exit 1
+          fi
+          if ! [[ "$MONTHS" =~ ^([1-9]|1[0-2])$ ]]; then
+            echo "::error::개월 수가 1~12가 아닙니다: $MONTHS"
+            exit 1
+          fi
+        env:
+          SGG_CD: ${{ inputs.sggCd }}
+          MONTHS: ${{ inputs.months }}
+
+      - name: 수집 및 배포
+        id: publish
+        run: |
+          set +e
+          node packages/ingest/scripts/publish-region.mjs "$SGG_CD" "--months=$MONTHS" ${DRY_RUN:+--dry-run}
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+        env:
+          SGG_CD: ${{ inputs.sggCd }}
+          MONTHS: ${{ inputs.months }}
+          DRY_RUN: ${{ inputs.dryRun && '1' || '' }}
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+      # 스크립트는 종료 코드로 상황을 구분한다. 무엇 때문에 멈췄는지가
+      # 로그를 열지 않고도 보여야 한다.
+      #   0 정상 · 2 배포 보류(의도한 중단) · 3 수집 이슈 · 그 외 오류
+      #
+      # 보류를 실패로 올리는 것은 의도다. 매니페스트가 그대로라 서비스는 멀쩡하지만
+      # 원천에 무슨 일이 생겼다는 뜻이므로 사람이 봐야 한다.
+      - name: 결과 판정
+        run: |
+          case "$CODE" in
+            0) echo "배포 완료" ;;
+            2) echo "::error::배포가 보류되었습니다. 매니페스트는 그대로입니다 — 원천 이상을 먼저 확인하세요."
+               exit 1 ;;
+            3) echo "::warning::수집 중 이슈가 있었습니다(정규화 실패 또는 스키마 변화). 배포 자체는 되었습니다." ;;
+            *) echo "::error::실행이 실패했습니다 (종료 코드 $CODE)"
+               exit 1 ;;
+          esac
+        env:
+          CODE: ${{ steps.publish.outputs.code }}
