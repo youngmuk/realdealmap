@@ -20,6 +20,14 @@ const BASE = 'https://apis.data.go.kr/1613000';
 const RETRYABLE_RESULT_CODES = new Set(['01', '02', '04', '05']);
 const QUOTA_EXCEEDED = '22';
 
+/**
+ * 전송 실패 백오프의 상한.
+ *
+ * 지수적으로만 늘리면 6회째에 64초가 되어 잡 제한(20분)을 위협한다.
+ * 관측된 장애가 45초 규모였으므로 30초면 한 번은 그 너머로 넘어간다.
+ */
+const TRANSPORT_DELAY_CAP_MS = 30_000;
+
 export class QuotaExceededError extends Error {
   constructor(readonly datasetKey: DatasetKey) {
     super(`${datasetKey}의 일일 트래픽을 소진했습니다`);
@@ -35,19 +43,55 @@ export class InvalidRequestError extends Error {
 }
 
 export class UpstreamError extends Error {
-  constructor(message: string, readonly retryable: boolean) {
+  /**
+   * @param transport 원천에 **닿지도 못한** 실패인가.
+   *   원천이 답을 준 오류(resultCode 01·02·04·05)와 회복 시간이 다르다 —
+   *   답을 줬다는 것은 서버가 살아 있다는 뜻이라 수백 ms면 되지만,
+   *   연결 자체가 안 붙는 상황은 수십 초 단위로 회복한다. 백오프를 나누는 근거다.
+   */
+  constructor(message: string, readonly retryable: boolean, readonly transport = false) {
     super(message);
     this.name = 'UpstreamError';
   }
 }
+
+/**
+ * 오류의 `cause` 사슬을 한 줄로 편다.
+ *
+ * undici는 전송 실패를 전부 `TypeError: fetch failed`로 감싸고 **진짜 이유는
+ * `cause`에 넣는다.** `message`만 담으면 로그에 `fetch failed` 한 줄만 남아
+ * 연결 타임아웃인지 ECONNRESET인지 DNS 실패인지 구분할 수 없다.
+ * 실제로 CI 실패를 조사할 때 이것 때문에 산술 추정에 의존해야 했다.
+ *
+ * 깊이를 제한하는 이유는 `cause`가 순환할 수 있기 때문이다.
+ */
+const CAUSE_DEPTH = 4;
+
+const describeError = (error: unknown): string => {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < CAUSE_DEPTH && current !== undefined && current !== null; depth += 1) {
+    const message = current instanceof Error ? current.message : String(current);
+    const code = (current as { code?: unknown }).code;
+    parts.push(typeof code === 'string' ? `${message} (${code})` : message);
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return parts.join(' ← ');
+};
 
 export interface ClientOptions {
   readonly serviceKey: string;
   readonly fetchImpl?: typeof fetch;
   /** 기술문서 30 tps · 평균 500ms 기준으로 6이면 약 12 tps다 */
   readonly concurrency?: number;
+  /** 원천이 답을 준 재시도 가능 오류의 시도 횟수 */
   readonly maxRetries?: number;
   readonly baseDelayMs?: number;
+  /** 전송 실패(연결 자체가 안 붙음)의 시도 횟수 */
+  readonly transportRetries?: number;
+  readonly transportDelayMs?: number;
+  /** 지터용. 테스트에서 고정한다 */
+  readonly random?: () => number;
   /** API(상세기능)별 일일 한도 */
   readonly dailyQuota?: number;
   readonly pageSize?: number;
@@ -145,6 +189,9 @@ export class MolitClient {
   readonly #concurrency: number;
   readonly #maxRetries: number;
   readonly #baseDelayMs: number;
+  readonly #transportRetries: number;
+  readonly #transportDelayMs: number;
+  readonly #random: () => number;
   readonly #dailyQuota: number;
   readonly #pageSize: number;
   readonly #sleep: (ms: number) => Promise<void>;
@@ -161,6 +208,9 @@ export class MolitClient {
     this.#concurrency = options.concurrency ?? 6;
     this.#maxRetries = options.maxRetries ?? 4;
     this.#baseDelayMs = options.baseDelayMs ?? 500;
+    this.#transportRetries = options.transportRetries ?? 6;
+    this.#transportDelayMs = options.transportDelayMs ?? 2_000;
+    this.#random = options.random ?? Math.random;
     this.#dailyQuota = options.dailyQuota ?? 10_000;
     this.#pageSize = options.pageSize ?? 1000;
     this.#sleep = options.sleep ?? wait;
@@ -232,8 +282,9 @@ export class MolitClient {
     }
     const resolved = this.resolveSggCd(sggCd);
 
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= this.#maxRetries; attempt += 1) {
+    // 시도 한도는 **그 시도가 어떻게 실패했는지**에 따라 달라진다.
+    // 그래서 `for`의 조건이 아니라 catch 안에서 판정한다.
+    for (let attempt = 1; ; attempt += 1) {
       if (this.remaining(key) <= 0) throw new QuotaExceededError(key);
       this.#used.set(key, this.usage(key) + 1);
 
@@ -241,13 +292,45 @@ export class MolitClient {
         const response = await this.#attempt(key, resolved, period, pageNo, rows);
         return { response, attempts: attempt };
       } catch (error) {
-        lastError = error;
         if (error instanceof QuotaExceededError) throw error;
         if (!(error instanceof UpstreamError) || !error.retryable) throw error;
-        if (attempt < this.#maxRetries) await this.#sleep(this.#baseDelayMs * 2 ** (attempt - 1));
+        if (attempt >= (error.transport ? this.#transportRetries : this.#maxRetries)) throw error;
+        await this.#sleep(this.#backoff(attempt, error.transport));
       }
     }
-    throw lastError;
+  }
+
+  /**
+   * 다음 재시도까지 기다릴 시간.
+   *
+   * 전송 실패에만 **지터**를 넣는다. 여러 러너가 같은 순간 같은 원천에 막히면
+   * 백오프가 결정적일 때 전원이 같은 오프셋에 다시 몰려 또 부딪힌다.
+   * 절반 지터(0.5~1.0배)를 쓰는 이유는 하한을 남기기 위해서다 —
+   * 연결 타임아웃 직후 100ms 만에 다시 붙어 봐야 결과가 같다.
+   *
+   * 원천이 답을 준 오류는 결정적으로 둔다. 서버가 살아 있어 금방 회복하고,
+   * 예측 가능한 편이 테스트와 운영 양쪽에서 읽기 쉽다.
+   */
+  #backoff(attempt: number, transport: boolean): number {
+    if (!transport) return this.#baseDelayMs * 2 ** (attempt - 1);
+    const capped = Math.min(this.#transportDelayMs * 2 ** (attempt - 1), TRANSPORT_DELAY_CAP_MS);
+    return Math.round(capped * (0.5 + this.#random() * 0.5));
+  }
+
+  /**
+   * 요청 URL과 서비스키를 메시지에서 지운다.
+   *
+   * 오류 메시지는 로그·CI 요약·잡 주석으로 흘러 나간다. 어떤 오류가 URL을
+   * 통째로 담아 올지 보장할 수 없으므로(예: URL 파싱 오류) **내보내기 직전에**
+   * 한 번 더 지운다. §보안: 이 저장소는 public이다.
+   */
+  #scrub(text: string): string {
+    return text
+      .split(this.#serviceKey)
+      .join('***')
+      .split(encodeServiceKey(this.#serviceKey))
+      .join('***')
+      .replace(/serviceKey=[^&\s]*/gi, 'serviceKey=***');
   }
 
   async #attempt(
@@ -270,7 +353,8 @@ export class MolitClient {
     } catch (error) {
       if (error instanceof UpstreamError) throw error;
       throw new UpstreamError(
-        `네트워크 실패 (${key} ${sggCd} ${period}): ${error instanceof Error ? error.message : error}`,
+        this.#scrub(`네트워크 실패 (${key} ${sggCd} ${period}): ${describeError(error)}`),
+        true,
         true,
       );
     }

@@ -234,6 +234,145 @@ describe('오류 분류', () => {
   });
 });
 
+/**
+ * 전송 실패는 원천이 답을 준 오류와 **다르게 다룬다.**
+ *
+ * 이 구분이 없던 시절 CI가 세 번 연속 죽었다. 원천에 연결 자체가 45초 동안
+ * 안 붙었는데 재시도 창이 3.5초라 무조건 졌고, 첫 작업이 죽으면서 지역 27개
+ * 조합이 통째로 버려졌다.
+ */
+describe('전송 실패 처리', () => {
+  /** 항상 전송 계층에서 죽는 fetch. undici가 감싸는 모양을 흉내낸다. */
+  const dead = (cause?: unknown) => () => {
+    throw Object.assign(new TypeError('fetch failed'), cause === undefined ? {} : { cause });
+  };
+
+  test('원천이 답한 오류보다 많이 시도한다', async () => {
+    const { client: c, stub } = client([dead()], { maxRetries: 4, transportRetries: 6 });
+    await expect(c.fetchPage('land/sale', '11110', '202608')).rejects.toThrow(UpstreamError);
+    expect(stub.calls()).toBe(6);
+  });
+
+  // 두 일정이 실제로 갈라져 있는지 잠근다. 한쪽만 고치고 다른 쪽을 잊으면 여기서 걸린다.
+  test('원천이 답한 오류는 좁은 한도를 그대로 쓴다', async () => {
+    const { client: c, stub } = client([() => ok(dataXml([], 0, '01'))], {
+      maxRetries: 4,
+      transportRetries: 6,
+    });
+    await expect(c.fetchPage('land/sale', '11110', '202608')).rejects.toThrow(UpstreamError);
+    expect(stub.calls()).toBe(4);
+  });
+
+  test('지터가 지수 백오프의 0.5~1.0배 안에 든다', async () => {
+    const delays: number[] = [];
+    const { client: c } = client([dead()], {
+      transportRetries: 4,
+      transportDelayMs: 1000,
+      random: () => 0, // 하한
+      sleep: (ms: number) => {
+        delays.push(ms);
+        return Promise.resolve();
+      },
+    });
+    await expect(c.fetchPage('land/sale', '11110', '202608')).rejects.toThrow(UpstreamError);
+    expect(delays).toEqual([500, 1000, 2000]);
+  });
+
+  test('지터 상한은 지수값 그대로다', async () => {
+    const delays: number[] = [];
+    const { client: c } = client([dead()], {
+      transportRetries: 4,
+      transportDelayMs: 1000,
+      random: () => 1, // 상한
+      sleep: (ms: number) => {
+        delays.push(ms);
+        return Promise.resolve();
+      },
+    });
+    await expect(c.fetchPage('land/sale', '11110', '202608')).rejects.toThrow(UpstreamError);
+    expect(delays).toEqual([1000, 2000, 4000]);
+  });
+
+  // 상한이 없으면 6회째가 64초가 되어 잡 제한을 위협한다.
+  test('백오프가 30초를 넘지 않는다', async () => {
+    const delays: number[] = [];
+    const { client: c } = client([dead()], {
+      transportRetries: 8,
+      transportDelayMs: 2000,
+      random: () => 1,
+      sleep: (ms: number) => {
+        delays.push(ms);
+        return Promise.resolve();
+      },
+    });
+    await expect(c.fetchPage('land/sale', '11110', '202608')).rejects.toThrow(UpstreamError);
+    expect(Math.max(...delays)).toBe(30_000);
+  });
+
+  // undici는 진짜 이유를 message가 아니라 cause에 넣는다.
+  // 이것을 버리면 로그에 `fetch failed` 한 줄만 남아 원인을 알 수 없다.
+  test('cause 사슬을 메시지에 편다', async () => {
+    const inner = Object.assign(new Error('connect ETIMEDOUT 1.2.3.4:443'), {
+      code: 'UND_ERR_CONNECT_TIMEOUT',
+    });
+    const { client: c } = client([dead(inner)], { transportRetries: 1 });
+
+    await expect(c.fetchPage('land/sale', '11110', '202608')).rejects.toThrow(
+      /fetch failed ← connect ETIMEDOUT 1\.2\.3\.4:443 \(UND_ERR_CONNECT_TIMEOUT\)/,
+    );
+  });
+
+  test('cause가 순환해도 멈춘다', async () => {
+    const a = new Error('a');
+    const b = new Error('b');
+    Object.assign(a, { cause: b });
+    Object.assign(b, { cause: a });
+    const { client: c } = client([dead(a)], { transportRetries: 1 });
+
+    await expect(c.fetchPage('land/sale', '11110', '202608')).rejects.toThrow(/fetch failed ← a/);
+  });
+});
+
+/**
+ * 오류 메시지는 로그·CI 요약·잡 주석으로 흘러 나간다. 이 저장소는 public이다.
+ * 어떤 오류가 URL을 통째로 담아 올지 보장할 수 없으므로 내보내기 직전에 지운다.
+ */
+describe('오류 메시지의 서비스키 제거', () => {
+  const leak = (text: string) => () => {
+    throw new Error(text);
+  };
+  const attempt = async (text: string, serviceKey = 'TEST-KEY'): Promise<string> => {
+    const { client: c } = client([leak(text)], { serviceKey, transportRetries: 1 });
+    try {
+      await c.fetchPage('land/sale', '11110', '202608');
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    throw new Error('던지지 않았다');
+  };
+
+  test('키 원문을 지운다', async () => {
+    expect(await attempt('보낸 곳: ...?serviceKey=TEST-KEY&LAWD_CD=11110')).not.toContain(
+      'TEST-KEY',
+    );
+  });
+
+  test('퍼센트 인코딩된 키도 지운다', async () => {
+    const message = await attempt('...serviceKey=a%2Bb%2Fc&x=1', 'a+b/c');
+    expect(message).not.toContain('a%2Bb%2Fc');
+    expect(message).not.toContain('a+b/c');
+  });
+
+  // 키를 모르는 형태로 흘려도 파라미터 이름은 남는다. 값 쪽을 통째로 지운다.
+  test('키를 못 알아봐도 serviceKey 값은 지운다', async () => {
+    const message = await attempt('URL: https://x/y?serviceKey=WHATEVER-ELSE&pageNo=1');
+    expect(message).toContain('serviceKey=***');
+    expect(message).not.toContain('WHATEVER-ELSE');
+    // 나머지 파라미터는 남아야 진단에 쓸모가 있다.
+    expect(message).toContain('pageNo=1');
+  });
+});
+
 describe('응답 상한과 제한 시간', () => {
   /** 지정한 바이트만큼 흘려보내는 스트림 응답. 본문 상한 검증용. */
   const streaming = (totalBytes: number, chunkSize = 1024): Response => {
