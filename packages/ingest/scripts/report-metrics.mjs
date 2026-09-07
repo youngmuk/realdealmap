@@ -100,7 +100,7 @@ const main = async () => {
     let token;
     do {
       const page = await r2.list(prefix, token);
-      for (const key of page.keys) objects += 1;
+      objects += page.keys.length;
       bytes += page.bytes ?? 0;
       token = page.nextToken;
     } while (token);
