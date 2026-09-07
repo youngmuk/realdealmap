@@ -61,6 +61,7 @@ export {
   checkRecordDrop,
   findObsoleteChunks,
   findVanishedCombos,
+  carryOver,
   manifestKey,
   publishRegion,
   PublishError,

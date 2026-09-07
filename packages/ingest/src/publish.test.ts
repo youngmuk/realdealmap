@@ -9,6 +9,7 @@ import { buildChunk, chunkObjectKey, type Chunk } from './chunk.js';
 import { normalizeAll, type Transaction } from './normalize.js';
 import { parseResponse } from './parse.js';
 import {
+  carryOver,
   checkRecordDrop,
   findObsoleteChunks,
   findVanishedCombos,
@@ -80,23 +81,26 @@ const fakeR2 = (
   return { client, store, puts, existing, listCalls };
 };
 
-const seedManifest = (store: Map<string, Uint8Array>, sggCd: string, records: number): void => {
+const seedManifest = (
+  store: Map<string, Uint8Array>,
+  sggCd: string,
+  records: number,
+  months: readonly string[] = ['202608'],
+): void => {
   const manifest: Manifest = {
     schemaVersion: SCHEMA_VERSION,
     sggCd,
     refreshedAt: '2026-09-01T00:00:00.000Z',
     ttlSeconds: 3600,
-    files: [
-      {
-        propertyType: 'apartment',
-        tradeType: 'sale',
-        month: '202608',
-        path: 'v1/data/11680/202608/apartment-sale.oldhash00000000.json.gz',
-        sha256: 'old',
-        bytes: 1,
-        records,
-      },
-    ],
+    files: months.map((month) => ({
+      propertyType: 'apartment' as const,
+      tradeType: 'sale' as const,
+      month,
+      path: `v1/data/11680/${month}/apartment-sale.oldhash00000000.json.gz`,
+      sha256: 'old',
+      bytes: 1,
+      records,
+    })),
   };
   store.set(manifestKey(sggCd), new TextEncoder().encode(JSON.stringify(manifest)));
 };
@@ -482,5 +486,112 @@ describe('낡은 청크 탐색', () => {
     const result = await publishRegion(client, '11680', [chunkFor('apartment/sale')], {});
     await findObsoleteChunks(client, '11680', result.manifest);
     expect(store.has(stale)).toBe(true);
+  });
+});
+
+/**
+ * 최근 N개월 갱신이 12개월 적재를 지우지 않는가 (T6.1).
+ *
+ * 매니페스트는 그 지역에서 살아 있는 파일의 전체 목록이다. 이번에 만든 것만
+ * 담으면 최근 3개월 갱신 한 번이 나머지 9개월을 목록에서 지운다. 청크는 R2에
+ * 그대로 남아 있으므로 손실은 아니지만, 앱에서는 없어진 것과 같다.
+ *
+ * 실제로는 지워지기 전에 건수 게이트가 보류를 건다. 그래서 이어받기가 없으면
+ * 12개월을 채운 지역은 매 시간 갱신이 보류로 끝난다.
+ */
+describe('carryOver', () => {
+  const now = new Date('2026-09-08T00:00:00.000Z');
+  const file = (month: string, records = 10): ManifestFile => ({
+    propertyType: 'apartment',
+    tradeType: 'sale',
+    month,
+    path: `v1/data/11680/${month}/apartment-sale.hash.json.gz`,
+    sha256: 'h',
+    bytes: 1,
+    records,
+  });
+  const manifest = (files: ManifestFile[]): Manifest => ({
+    schemaVersion: SCHEMA_VERSION,
+    sggCd: '11680',
+    refreshedAt: '2026-09-01T00:00:00.000Z',
+    ttlSeconds: 3600,
+    files,
+  });
+
+  test('이번에 시도하지 않은 달만 이어받는다', () => {
+    const previous = manifest([file('202609'), file('202608'), file('202605')]);
+
+    const kept = carryOver(previous, ['202609', '202608'], 12, now);
+
+    expect(kept.map((f) => f.month)).toEqual(['202605']);
+  });
+
+  // 시도한 달이 0건으로 돌아온 것을 이어받아 메우면 R-14 실종이 완벽히 감춰진다.
+  test('시도한 달이 0건이어도 이전 것으로 메우지 않는다', () => {
+    const previous = manifest([file('202609', 500)]);
+
+    const kept = carryOver(previous, ['202609'], 12, now);
+
+    expect(kept).toEqual([]);
+  });
+
+  test('무엇을 시도했는지 모르면 이어받지 않는다', () => {
+    const previous = manifest([file('202605')]);
+
+    expect(carryOver(previous, undefined, 12, now)).toEqual([]);
+  });
+
+  // 이어받기를 끝없이 하면 매니페스트가 영원히 자라고, 앱은 볼 일 없는 달을 받는다.
+  test('보관 창 밖은 이어받지 않는다', () => {
+    // 2026-09 기준 12개월 창은 202510~202609다. 202509는 하루 차이로 밖이다.
+    const previous = manifest([file('202510'), file('202509')]);
+
+    const kept = carryOver(previous, ['202609'], 12, now);
+
+    expect(kept.map((f) => f.month)).toEqual(['202510']);
+  });
+
+  test('이전 매니페스트가 없으면 빈 목록', () => {
+    expect(carryOver(undefined, ['202609'], 12, now)).toEqual([]);
+  });
+});
+
+describe('publishRegion 이어받기', () => {
+  test('3개월 갱신이 나머지 달을 목록에 남긴다', async () => {
+    const { client, store } = fakeR2();
+    const chunk = chunkFor('apartment/sale');
+    // 12개월이 채워져 있고 각 달 2,139건 — 3개월만 다시 만들면 비율은 25%다
+    const months = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(Date.UTC(2026, 8 - i, 1));
+      return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    });
+    seedManifest(store, '11680', chunk.payload.count, months);
+
+    const result = await publishRegion(client, '11680', [chunk], {
+      periods: ['202608'],
+      now: () => new Date('2026-09-08T00:00:00.000Z'),
+    });
+
+    expect(result.hold).toBeUndefined();
+    expect(result.manifestReplaced).toBe(true);
+    expect(new Set(result.manifest.files.map((f) => f.month)).size).toBe(12);
+  });
+
+  test('이어받기를 끄면 옛 동작 그대로 보류된다', async () => {
+    const { client, store } = fakeR2();
+    const chunk = chunkFor('apartment/sale');
+    const months = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(Date.UTC(2026, 8 - i, 1));
+      return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    });
+    seedManifest(store, '11680', chunk.payload.count, months);
+
+    const result = await publishRegion(client, '11680', [chunk], {
+      periods: ['202608'],
+      retainMonths: 0,
+      now: () => new Date('2026-09-08T00:00:00.000Z'),
+    });
+
+    expect(result.hold).toMatchObject({ kind: 'recordDrop' });
   });
 });

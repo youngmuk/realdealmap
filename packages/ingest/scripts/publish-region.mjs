@@ -240,7 +240,9 @@ const main = async () => {
   );
 
   console.log('\n배포');
-  const result = await publishRegion(r2, resolved, chunks, { dryRun });
+  // 이번에 시도한 달을 넘긴다. 그래야 나머지 달을 이전 매니페스트에서
+  // 이어받는다 — 안 넘기면 최근 3개월 갱신 한 번이 12개월 적재를 지운다.
+  const result = await publishRegion(r2, resolved, chunks, { dryRun, periods });
 
   if (result.hold) {
     const h = result.hold;

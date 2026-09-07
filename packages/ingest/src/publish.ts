@@ -1,6 +1,7 @@
 import type { PropertyType, TradeType } from '@realdealmap/shared';
 
 import { chunkObjectKey, regionPrefix, type Chunk } from './chunk.js';
+import { MAX_MONTHS, recentPeriods } from './tasks.js';
 import type { R2Client } from './r2.js';
 
 /**
@@ -78,6 +79,28 @@ export interface PublishOptions {
    * 0.5면 절반 아래로 떨어질 때 교체를 보류한다. 0이면 게이트를 끈다.
    */
   readonly minRecordRatio?: number;
+  /**
+   * 이번 배치가 **다시 만들려고 시도한** 계약 연월.
+   *
+   * 이어받기의 기준이다. 여기 있는 달은 이번 결과를 그대로 쓰고(0건이면 0건으로
+   * 게이트에 걸린다), 여기 없는 달만 이전 매니페스트에서 가져온다.
+   * 넘기지 않으면 이어받지 않는다.
+   */
+  readonly periods?: readonly string[];
+  /**
+   * 이번 배치에 없는 달을 이전 매니페스트에서 **몇 달까지 이어받을지**.
+   *
+   * 매니페스트는 그 지역에서 살아 있는 파일의 전체 목록이다. 이어받지 않으면
+   * 최근 3개월 갱신 한 번이 12개월 적재를 3개월로 줄인다 — 청크는 R2에 그대로
+   * 남아 있는데 목록에서 빠져 앱에서 사라진다.
+   *
+   * 실제로는 그렇게 줄어들기 전에 건수 게이트가 먼저 보류를 건다. 그래서
+   * 이어받기가 없으면 12개월을 채운 지역은 **매 시간 갱신이 보류된다.**
+   * 조용한 손실은 아니지만 갱신이 멎는다.
+   *
+   * 0이면 이어받지 않는다(옛 동작).
+   */
+  readonly retainMonths?: number;
   /** 한 번에 올릴 수 있는 청크 수 상한. Class A 연산 폭주를 막는다 */
   readonly maxUploads?: number;
   readonly ttlSeconds?: number;
@@ -105,6 +128,34 @@ const toManifestFile = (chunk: Chunk): ManifestFile => {
 /** 매니페스트의 파일 순서를 고정한다. 순서가 흔들리면 내용이 같아도 바이트가 달라진다. */
 const sortFiles = (files: readonly ManifestFile[]): readonly ManifestFile[] =>
   [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+
+/**
+ * 이번 배치에 없는 달을 이전 매니페스트에서 이어받는다.
+ *
+ * 청크는 콘텐츠 해시 경로에 있고 지우지 않으므로, 옛 달의 항목을 그대로 들고
+ * 와도 가리키는 파일은 전부 살아 있다.
+ *
+ * 보관 창(기본 12개월) 밖은 이어받지 않는다. 그것까지 들고 오면 매니페스트가
+ * 영원히 자라고, 앱은 볼 일 없는 달을 계속 내려받는다.
+ */
+export const carryOver = (
+  previous: Manifest | undefined,
+  attempted: readonly string[] | undefined,
+  retainMonths: number,
+  now: Date,
+): readonly ManifestFile[] => {
+  // 무엇을 시도했는지 모르면 이어받지 않는다.
+  //
+  // 만들어진 달을 기준으로 삼으면 안 된다. 원천이 조용히 0건을 주면(R-14)
+  // 그 달은 결과에 없고, 그러면 "안 만든 달"로 보여 이전 것을 그대로 이어받는다.
+  // 건수는 그대로니 게이트도 통과한다 — 실종이 완벽하게 감춰진다.
+  if (!previous || retainMonths <= 0 || !attempted) return [];
+
+  const rebuilt = new Set(attempted);
+  const keep = new Set(recentPeriods(now, Math.min(retainMonths, MAX_MONTHS)));
+
+  return previous.files.filter((f) => !rebuilt.has(f.month) && keep.has(f.month));
+};
 
 const totalRecordsOf = (files: readonly ManifestFile[]): number =>
   files.reduce((sum, f) => sum + f.records, 0);
@@ -206,6 +257,8 @@ export const publishRegion = async (
     minRecordRatio = 0.5,
     maxUploads = 200,
     ttlSeconds = 3600,
+    retainMonths = MAX_MONTHS,
+    periods,
     dryRun = false,
     now = () => new Date(),
   } = options;
@@ -215,7 +268,15 @@ export const publishRegion = async (
     throw new PublishError(`지역이 섞였다: ${sggCd} 배포에 ${mismatched.payload.sggCd}`);
   }
 
-  const files = sortFiles(chunks.map(toManifestFile));
+  // 이전 매니페스트를 **먼저** 읽는다. 이번에 안 만든 달을 거기서 이어받아야
+  // 하므로, 목록을 짜기 전에 있어야 한다.
+  const previous = await readManifest(r2, sggCd);
+
+  const fresh = chunks.map(toManifestFile);
+  const files = sortFiles([
+    ...fresh,
+    ...carryOver(previous, periods, retainMonths, now()),
+  ]);
   const totalRecords = totalRecordsOf(files);
   const manifest: Manifest = {
     schemaVersion: SCHEMA_VERSION,
@@ -225,7 +286,6 @@ export const publishRegion = async (
     files,
   };
 
-  const previous = await readManifest(r2, sggCd);
   // 게이트 둘을 순서대로 본다. 합계는 지역 전체의 붕괴를, 조합은 한 유형의 실종을 잡는다.
   // `minRecordRatio <= 0`은 둘 다 끄는 스위치다 — R-14 방어를 통째로 내리는 것이므로
   // 유형을 정말로 수집 중단할 때만 쓴다.

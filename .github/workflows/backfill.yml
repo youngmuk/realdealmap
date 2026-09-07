@@ -1,0 +1,157 @@
+name: backfill
+
+# 전국 시군구를 12개월까지 채운다 (T6.1).
+#
+# **진행 상태를 따로 들고 있지 않는다.** 매 실행이 R2에 "아직 12개월이 없는 지역"을
+# 물어보고 그중 앞에서부터 예산만큼만 처리한다. 그래서 중간에 끊기든 두 번 돌든
+# 결과가 같고, 쿼터를 넘길 수가 없다 — 한 실행이 쓰는 호출 수가 입력으로 묶여 있다.
+#
+# 좌표는 여기서 만들지 않는다(`--geocode=0`).
+# 국토부 쿼터는 API마다 일 10,000건이라 전국 12개월(API당 3,072회)이 하루에 들어가지만,
+# 카카오 지오코딩은 계정 전체로 일 100,000건이고 전국 고유 주소는 그보다 훨씬 많다.
+# 둘을 한 워크플로에 묶으면 느린 쪽이 빠른 쪽을 붙잡는다. 좌표는 geocode-queue가
+# 며칠에 걸쳐 채우고, 그동안에도 목록과 상세는 그대로 보인다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: '이번 실행에서 처리할 지역 수. 국토부 호출은 지역당 (개월 수 × 9)회다'
+        required: false
+        default: '40'
+        type: string
+      months:
+        description: '채울 개월 수'
+        required: false
+        default: '12'
+        type: string
+      dryRun:
+        description: '올리지 않고 계획만 확인한다'
+        required: false
+        default: false
+        type: boolean
+
+  # 적재가 끝나면 할 일이 없어 R2 조회만 하고 끝난다. 그대로 두면
+  # 달이 바뀔 때 새 달을 자동으로 채우는 장치가 된다.
+  schedule:
+    - cron: '23 */6 * * *'
+
+# 지역별로 나눠 잠그지 않는다. 한 실행이 여러 지역을 도는 데다, 동시에 두 적재가
+# 돌면 같은 지역을 두 번 수집해 쿼터만 태운다. 하나씩 돌린다.
+#
+# refresh-region과는 겹칠 수 있다. 같은 지역이 동시에 배포되면 나중에 끝난 쪽의
+# 매니페스트가 남는데, 둘 다 이어받기를 하므로 달이 사라지지는 않고 기준 시각만
+# 앞뒤가 바뀐다. 다음 갱신이 바로잡는다.
+concurrency:
+  group: backfill
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # 지역당 2~3분을 잡고 40개면 두 시간 안쪽이다. 6시간 상한에 여유를 둔다.
+    timeout-minutes: 330
+
+    steps:
+      # 액션은 커밋 SHA로 고정한다. 이 잡이 국토부 인증키와 R2 자격증명을 쥔다.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: 빌드
+        run: npm run typecheck
+
+      - name: 입력 검증
+        run: |
+          if ! [[ "$LIMIT" =~ ^[1-9][0-9]{0,2}$ ]]; then
+            echo "::error::지역 수가 1~999가 아닙니다: $LIMIT"
+            exit 1
+          fi
+          if ! [[ "$MONTHS" =~ ^([1-9]|1[0-2])$ ]]; then
+            echo "::error::개월 수가 1~12가 아닙니다: $MONTHS"
+            exit 1
+          fi
+        env:
+          LIMIT: ${{ inputs.limit || '40' }}
+          MONTHS: ${{ inputs.months || '12' }}
+
+      - name: 남은 지역 확인
+        id: plan
+        run: |
+          node packages/ingest/scripts/backfill-plan.mjs \
+            "--months=$MONTHS" "--limit=$LIMIT" > /tmp/todo.txt
+          count=$(wc -l < /tmp/todo.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "이번 실행 대상 ${count}개"
+        env:
+          MONTHS: ${{ inputs.months || '12' }}
+          LIMIT: ${{ inputs.limit || '40' }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+      - name: 적재
+        if: steps.plan.outputs.count != '0'
+        run: |
+          ok=0; held=0; failed=0
+          while read -r code; do
+            [ -n "$code" ] || continue
+            echo "::group::$code"
+            set +e
+            # 지역마다 잡 요약에 표를 붙이면 40개가 쌓여 요약 상한(1 MiB)을 넘긴다.
+            # 여기서는 비워 두고, 아래에서 합계만 한 번 적는다.
+            GITHUB_STEP_SUMMARY= node packages/ingest/scripts/publish-region.mjs \
+              "$code" "--months=$MONTHS" --geocode=0 ${DRY_RUN:+--dry-run}
+            rc=$?
+            set -e
+            echo "::endgroup::"
+            case "$rc" in
+              0|3) ok=$((ok+1)) ;;
+              # 보류는 한 지역의 사정이다. 여기서 멈추면 나머지 지역이 통째로
+              # 밀리므로, 세어 두고 계속 간다. 다음 실행이 다시 시도한다.
+              2)   held=$((held+1)); echo "::warning::$code 배포 보류" ;;
+              *)   failed=$((failed+1)); echo "::warning::$code 실패 (종료 코드 $rc)" ;;
+            esac
+          done < /tmp/todo.txt
+
+          echo "완료 $ok · 보류 $held · 실패 $failed"
+          {
+            echo "### 적재 결과"
+            echo ""
+            echo "| 항목 | 값 |"
+            echo "| --- | --- |"
+            echo "| 대상 | ${{ steps.plan.outputs.count }} |"
+            echo "| 완료 | $ok |"
+            echo "| 보류 | $held |"
+            echo "| 실패 | $failed |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # 전부 실패했으면 무언가 구조적으로 잘못된 것이다. 조용히 넘기지 않는다.
+          if [ "$ok" -eq 0 ] && [ "$failed" -gt 0 ]; then
+            echo "::error::한 지역도 배포하지 못했습니다"
+            exit 1
+          fi
+        env:
+          MONTHS: ${{ inputs.months || '12' }}
+          DRY_RUN: ${{ inputs.dryRun && '1' || '' }}
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+      - name: 남은 것이 없으면 알린다
+        if: steps.plan.outputs.count == '0'
+        run: echo "전국 ${MONTHS}개월이 모두 채워져 있습니다." >> "$GITHUB_STEP_SUMMARY"
+        env:
+          MONTHS: ${{ inputs.months || '12' }}
