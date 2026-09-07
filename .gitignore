@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+
+# 원본 내려받기 결과. 생성물(packages/shared/data/*.json)만 커밋한다.
+packages/shared/raw/
+
+# Cloudflare
+.wrangler/
+.dev.vars
+out/
