@@ -1,0 +1,66 @@
+name: backend-ci
+
+# 수집·배포 코드의 타입·린트·테스트.
+#
+# **없었다.** 502개 테스트가 있는데 푸시할 때 돌지 않았고, 운영 워크플로 안에서만
+# `typecheck`가 불렸다. 그 자리에서의 실패는 회귀를 잡은 것이 아니라 그날의 적재가
+# 깨진 것이다 — 잡을 곳이 아니라 다친 곳이다.
+#
+# 앱(app-ci)과 나누는 이유는 도구가 다르기 때문이다. 한 잡에 묶으면 TypeScript만
+# 건드린 변경에도 Flutter SDK를 받는다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'eslint.config.*'
+      - 'vitest.config.*'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'eslint.config.*'
+      - 'vitest.config.*'
+      - '.github/workflows/backend-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # 액션을 태그가 아니라 커밋 SHA로 고정한다. 이 저장소의 다른 워크플로와 같은 이유다.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 의존성 설치
+        run: npm ci
+
+      # 자격증명이 필요한 것은 하나도 없다. 여기서 R2나 원천에 닿는 테스트가
+      # 생기면 그 순간 이 잡은 포크 PR에서 못 돌게 된다.
+      - name: 타입 검사
+        run: npm run typecheck
+
+      - name: 정적 분석
+        run: npm run lint
+
+      - name: 테스트
+        run: npm test
