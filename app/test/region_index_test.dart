@@ -184,4 +184,37 @@ void main() {
       expect(index.bySido['서울특별시']!.map((r) => r.sggName), ['강남구', '서초구']);
     });
   });
+
+  // 세종특별자치시는 시군구가 없어 sggName이 빈 문자열이다. 그대로 쓰면 지역
+  // 목록에 이름 없는 칸이 뜨고(건수만 덩그러니 남는다), 골라도 머리말이 빈 채다.
+  // 실기기에서 보고 알았다 — 원천 카탈로그를 읽는 것만으로는 눈에 띄지 않는다.
+  group('시군구가 없는 시도', () {
+    RegionSummary sejong() => RegionSummary(
+      sggCd: '36110',
+      name: '세종특별자치시',
+      sidoName: '세종특별자치시',
+      sggName: '',
+      records: 25046,
+      located: 0,
+      refreshedAt: '2026-09-08T00:00:00Z',
+    );
+
+    test('이름이 비면 시도 이름을 쓴다', () {
+      expect(sejong().displayName, '세종특별자치시');
+    });
+
+    test('시군구가 있으면 그것을 쓴다', () {
+      final gangnam = RegionSummary(
+        sggCd: '11680',
+        name: '서울특별시 강남구',
+        sidoName: '서울특별시',
+        sggName: '강남구',
+        records: 10,
+        located: 10,
+        refreshedAt: '2026-09-08T00:00:00Z',
+      );
+
+      expect(gangnam.displayName, '강남구');
+    });
+  });
 }

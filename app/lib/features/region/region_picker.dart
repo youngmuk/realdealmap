@@ -103,7 +103,7 @@ class _RegionChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            region.sggName,
+            region.displayName,
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,

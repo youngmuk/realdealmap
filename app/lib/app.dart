@@ -184,7 +184,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             children: [
               Flexible(
                 child: Text(
-                  region?.sggName ?? (sggCd ?? '지역 선택'),
+                  region?.displayName ?? (sggCd ?? '지역 선택'),
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 18,

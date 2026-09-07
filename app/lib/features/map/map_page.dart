@@ -561,7 +561,7 @@ class _MapPageState extends ConsumerState<MapPage> {
                       .watch(regionIndexProvider)
                       .value
                       ?.byCode(_noCenterFor!)
-                      ?.sggName ??
+                      ?.displayName ??
                   _noCenterFor!,
               onList: widget.onShowList,
             ),

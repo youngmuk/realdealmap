@@ -74,6 +74,14 @@ class RegionSummary {
 
   /// 좌표가 붙은 거래 수. `records - located`가 지도에 못 그리는 건수다
   final int located;
+
+  /// 화면에 쓸 이름.
+  ///
+  /// 세종특별자치시는 시군구가 없어 [sggName]이 빈 문자열이다. 그대로 쓰면
+  /// 지역 목록에 **이름 없는 칸**이 뜨고(건수만 덩그러니 남는다), 골라도 머리말이
+  /// 빈 채로 있다. 원천의 체계가 그런 것이지 자료가 빠진 것이 아니라서,
+  /// 빈 칸을 보여 주는 것은 어느 쪽으로도 참이 아니다.
+  String get displayName => sggName.isNotEmpty ? sggName : sidoName;
   final String refreshedAt;
 
   /// 좌표가 하나도 없는 지역은 없다. 그때 지도를 열 자리가 없기 때문이다
@@ -126,7 +134,7 @@ class RegionIndex {
       (grouped[r.sidoName] ??= []).add(r);
     }
     for (final list in grouped.values) {
-      list.sort((a, b) => a.sggName.compareTo(b.sggName));
+      list.sort((a, b) => a.displayName.compareTo(b.displayName));
     }
     return grouped;
   }
