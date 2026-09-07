@@ -78,6 +78,14 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// 중심점이 없어 옮겨 가지 못한 지역. 화면에 그렇다고 적는다.
   String? _noCenterFor;
 
+  /// 옮기지 못했을 때 카메라가 남아 있던 자리.
+  ///
+  /// 여기서 움직이기 전까지 카메라는 **사용자의 뜻이 아니다.** 옮기지 못해
+  /// 남아 있는 자리일 뿐이라, 그것으로 지역을 판정하면 사용자의 선택을 조용히
+  /// 되돌린다. 실제로 좌표 없는 지역을 고른 뒤 앱을 다시 켜면 엉뚱한 지역이
+  /// 열렸다 — 고를 때는 맞게 열렸으므로 한참 뒤에야 알게 된다.
+  ml.LatLng? _noCenterAt;
+
   /// 처음 놓인 카메라 자리. 여기서 움직이기 전까지는 **지역을 추측하지 않는다**.
   ///
   /// 지역 판정은 카메라 중심이 어느 시군구에 드는지로 하는데, 첫 진입의 기본
@@ -283,6 +291,7 @@ class _MapPageState extends ConsumerState<MapPage> {
 
     final index = ref.read(regionIndexProvider).value;
     if (index == null || camera == null) return;
+    if (!_cameraSpeaksForUser(camera)) return;
 
     final region = index.at(
       idx.LatLng(camera.target.latitude, camera.target.longitude),
@@ -294,6 +303,33 @@ class _MapPageState extends ConsumerState<MapPage> {
 
     ref.read(selectedRegionProvider.notifier).select(region.sggCd);
     unawaited(ref.read(syncProvider.notifier).syncRegion(region.sggCd));
+  }
+
+  /// 지금 카메라 자리를 사용자의 뜻으로 읽어도 되는가.
+  ///
+  /// 고른 지역에 좌표가 없어 옮기지 못했다면, 카메라는 남의 동네에 그대로 있다.
+  /// 그 자리로 지역을 판정하면 **사용자가 고른 지역을 조용히 되돌린다.**
+  /// 사용자가 직접 밀어 움직였다면 그때부터는 다시 그의 뜻이다.
+  bool _cameraSpeaksForUser(ml.CameraPosition camera) {
+    if (_noCenterFor == null || _noCenterFor != ref.read(selectedRegionProvider)) {
+      return true;
+    }
+    final anchor = _noCenterAt;
+    if (anchor == null) return false;
+
+    final moved =
+        (camera.target.latitude - anchor.latitude).abs() >= 0.0005 ||
+        (camera.target.longitude - anchor.longitude).abs() >= 0.0005;
+    if (!moved) return false;
+
+    // 스스로 밀었다. 고지는 더 이상 지금 화면을 설명하지 않는다.
+    if (mounted) {
+      setState(() {
+        _noCenterFor = null;
+        _noCenterAt = null;
+      });
+    }
+    return true;
   }
 
   /// 카메라가 처음 놓인 자리에서 사실상 그대로인가.
@@ -401,11 +437,21 @@ class _MapPageState extends ConsumerState<MapPage> {
 
     final center = ref.read(regionIndexProvider).value?.byCode(sggCd)?.center;
     if (center == null) {
-      if (mounted) setState(() => _noCenterFor = sggCd);
+      if (mounted) {
+        setState(() {
+          _noCenterFor = sggCd;
+          _noCenterAt = controller.cameraPosition?.target;
+        });
+      }
       return;
     }
 
-    if (mounted) setState(() => _noCenterFor = null);
+    if (mounted) {
+      setState(() {
+        _noCenterFor = null;
+        _noCenterAt = null;
+      });
+    }
     await controller.animateCamera(
       ml.CameraUpdate.newLatLngZoom(ml.LatLng(center.lat, center.lng), 13.5),
     );
