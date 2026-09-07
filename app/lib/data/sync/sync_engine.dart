@@ -71,6 +71,15 @@ class _VerifiedChunk {
   final List<Map<String, dynamic>> records;
 }
 
+/// 청크를 한 번에 몇 개까지 동시에 받을지.
+///
+/// 하나씩 받으면 12개월 지역(9종 × 12달 = 108개)의 첫 동기화에서 왕복 지연이
+/// 108번 그대로 쌓인다. 지도가 20~30초 비어 있고, 사용자에게 그것은 고장이다.
+///
+/// 그렇다고 108개를 한꺼번에 열면 모바일 회선에서 서로를 밀어내고 타임아웃이
+/// 늘어난다. 여섯 개는 왕복 지연을 거의 다 숨기면서 그 지점에 닿지 않는다.
+const int kChunkConcurrency = 6;
+
 class _ChunkRejected implements Exception {
   _ChunkRejected(this.message);
   final String message;
@@ -136,33 +145,42 @@ class SyncEngine {
     }
 
     final verified = <_VerifiedChunk>[];
-    for (final file in missing) {
-      try {
-        final chunk = await _fetchAndVerify(file);
+    for (var i = 0; i < missing.length; i += kChunkConcurrency) {
+      final slice = missing.skip(i).take(kChunkConcurrency).toList();
+      final results = await Future.wait(slice.map(_tryFetch));
+
+      // **매니페스트 순서대로** 본다. 병렬로 받으면 실패가 도착하는 순서가
+      // 매번 달라지는데, 그때그때 다른 것을 보고하면 같은 고장이 실행할
+      // 때마다 다른 메시지로 보인다.
+      for (var j = 0; j < results.length; j += 1) {
+        final (chunk, error) = results[j];
+
+        if (error is RemoteException) {
+          return SyncOutcome(
+            sggCd: sggCd,
+            status: SyncStatus.offline,
+            manifest: manifest,
+            message: error.message,
+          );
+        }
+        if (error is _ChunkRejected) {
+          return SyncOutcome(
+            sggCd: sggCd,
+            status: SyncStatus.rejected,
+            manifest: manifest,
+            message: error.message,
+          );
+        }
         if (chunk == null) {
           // 매니페스트가 가리키는데 없다. 서버가 순서를 어겼거나 정리가 앞질렀다.
           return SyncOutcome(
             sggCd: sggCd,
             status: SyncStatus.rejected,
             manifest: manifest,
-            message: '매니페스트가 가리키는 청크가 없다: ${file.path}',
+            message: '매니페스트가 가리키는 청크가 없다: ${slice[j].path}',
           );
         }
         verified.add(chunk);
-      } on RemoteException catch (e) {
-        return SyncOutcome(
-          sggCd: sggCd,
-          status: SyncStatus.offline,
-          manifest: manifest,
-          message: e.message,
-        );
-      } on _ChunkRejected catch (e) {
-        return SyncOutcome(
-          sggCd: sggCd,
-          status: SyncStatus.rejected,
-          manifest: manifest,
-          message: e.message,
-        );
       }
     }
 
@@ -175,6 +193,21 @@ class SyncEngine {
       reused: applied.length - obsolete.length,
       applied: count,
     );
+  }
+
+  /// [_fetchAndVerify]를 부르되 예외를 **값으로** 돌려준다.
+  ///
+  /// `Future.wait`은 하나가 던지면 나머지 결과를 버린다. 그러면 어느 것이
+  /// 먼저 던졌느냐에 따라 보고가 달라진다 — 예외를 값으로 받아 두고
+  /// 순서대로 판정한다.
+  Future<(_VerifiedChunk?, Object?)> _tryFetch(ManifestFile file) async {
+    try {
+      return (await _fetchAndVerify(file), null);
+    } on RemoteException catch (e) {
+      return (null, e);
+    } on _ChunkRejected catch (e) {
+      return (null, e);
+    }
   }
 
   /// 청크 하나를 받아 **해시를 확인한 뒤에만** 돌려준다.

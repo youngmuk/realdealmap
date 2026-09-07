@@ -91,11 +91,26 @@ class _FakeRemote implements RemoteSource {
   final List<String> fetched = [];
   Set<String> offline = {};
 
+  /// 한 번에 몇 개가 떠 있었는지. 동시 수신을 재는 자다.
+  int inFlight = 0;
+  int peakInFlight = 0;
+
+  /// 참이면 응답을 한 박자 늦춘다 — 늦추지 않으면 전부 즉시 끝나서
+  /// 순차든 동시든 최고 동시 수가 1로 나온다.
+  bool slow = false;
+
   @override
   Future<Uint8List?> get(String key) async {
     fetched.add(key);
-    if (offline.contains(key)) throw RemoteException(key, '네트워크에 닿지 않는다');
-    return objects[key];
+    inFlight += 1;
+    if (inFlight > peakInFlight) peakInFlight = inFlight;
+    try {
+      if (slow) await Future<void>.delayed(const Duration(milliseconds: 5));
+      if (offline.contains(key)) throw RemoteException(key, '네트워크에 닿지 않는다');
+      return objects[key];
+    } finally {
+      inFlight -= 1;
+    }
   }
 }
 
@@ -143,6 +158,78 @@ void main() {
     f.publish();
     return f;
   }
+
+  /// 12개월 지역은 9종 × 12달 = 108개다. 하나씩 받으면 왕복 지연이 108번
+  /// 그대로 쌓여 지도가 20~30초 비어 있고, 사용자에게 그것은 고장이다.
+  group('동시 수신', () {
+    _Fixture manyChunks(int count) {
+      final f = _Fixture('11680');
+      for (var i = 0; i < count; i += 1) {
+        f.addChunk(
+          propertyType: 'apartment',
+          tradeType: 'sale',
+          month: '2026${(i % 12 + 1).toString().padLeft(2, '0')}',
+          records: [record('tx-$i', lat: 37.5, lng: 127.0)],
+        );
+      }
+      f.publish();
+      return f;
+    }
+
+    test('여러 청크를 한꺼번에 받는다', () async {
+      final f = manyChunks(20);
+      final remote = _FakeRemote(f.objects)..slow = true;
+
+      final result = await SyncEngine(db, remote).sync('11680');
+
+      expect(result.status, SyncStatus.updated);
+      expect(result.downloaded, 20);
+      expect(remote.peakInFlight, greaterThan(1), reason: '하나씩 받고 있다');
+    });
+
+    // 회선을 다 열어 버리면 모바일에서 서로를 밀어내고 타임아웃이 늘어난다.
+    test('동시에 여는 수에 상한이 있다', () async {
+      final f = manyChunks(20);
+      final remote = _FakeRemote(f.objects)..slow = true;
+
+      await SyncEngine(db, remote).sync('11680');
+
+      expect(remote.peakInFlight, lessThanOrEqualTo(kChunkConcurrency));
+    });
+
+    // 병렬로 받으면 실패가 도착하는 순서가 매번 달라진다. 그때그때 다른 것을
+    // 보고하면 같은 고장이 실행할 때마다 다른 메시지로 보인다.
+    // 같은 배치 안에서 두 가지 고장이 함께 나면, 도착 순서가 아니라
+    // **매니페스트 순서**가 결과를 정해야 한다. 아니면 같은 고장이 실행할
+    // 때마다 다른 메시지로 보이고, 사용자 제보로는 원인을 좁힐 수 없다.
+    test('같은 배치에서 고장이 겹치면 앞선 것을 보고한다', () async {
+      final f = _Fixture('11680');
+      for (var i = 0; i < 6; i += 1) {
+        f.addChunk(
+          propertyType: 'apartment',
+          tradeType: 'sale',
+          month: '2026${(i + 1).toString().padLeft(2, '0')}',
+          records: [record('tx-$i', lat: 37.5, lng: 127.0)],
+          // 두 번째 것의 해시를 틀리게 둔다
+          forgeHash: i == 1 ? 'f' * 64 : null,
+        );
+      }
+      f.publish();
+      final paths = f.files.map((x) => x.path).toList();
+
+      for (var run = 0; run < 3; run += 1) {
+        final remote = _FakeRemote(f.objects)
+          ..slow = true
+          // 네 번째는 네트워크가 끊긴다. 순서상 두 번째가 이겨야 한다
+          ..offline = {paths[3]};
+
+        final result = await SyncEngine(db, remote).sync('11680');
+
+        expect(result.status, SyncStatus.rejected, reason: '실행 $run');
+        expect(result.message, contains(paths[1]));
+      }
+    });
+  });
 
   group('첫 동기화', () {
     test('청크를 받아 반영한다', () async {
