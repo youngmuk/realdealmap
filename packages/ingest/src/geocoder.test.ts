@@ -196,6 +196,32 @@ describe('쿼터', () => {
     expect(result.deferred).toHaveLength(5);
   });
 
+  // 실전에서 하루치를 태우고 알았다. 카카오는 한도를 429가 아니라 400으로 알린다.
+  // 이것을 일반 오류로 두면 재시도 3회를 돌고 다음 지역으로 넘어가며, 남은 지역
+  // 전부가 "성공했지만 0건"으로 조용히 지나간다. 실제로 그렇게 6개 지역을 잃었다.
+  test('한도 초과는 400으로 온다 — 이것도 쿼터로 읽는다', async () => {
+    const body = JSON.stringify({
+      errorType: 'BadRequest',
+      message: 'API limit has been exceeded.',
+      code: -10,
+    });
+    const { geocoder: g, stub: s } = geocoder([() => status(400, body)]);
+    const result = await g.run(missing(5));
+
+    expect(result.quotaExhausted).toBe(true);
+    expect(result.deferred).toHaveLength(5);
+    // 다시 물어도 같은 답이다. 재시도로 호출을 더 태우면 안 된다.
+    expect(s.calls()).toBe(1);
+  });
+
+  test('한도와 무관한 400은 그냥 오류다', async () => {
+    const { geocoder: g } = geocoder([() => status(400, '{"message":"query is required"}')]);
+    const result = await g.run(missing(2));
+
+    expect(result.quotaExhausted).toBe(false);
+    expect(result.errors).toHaveLength(2);
+  });
+
   test('기본 예산은 카카오 일간 한도다', async () => {
     expect(KAKAO_DAILY_QUOTA).toBe(100_000);
   });
