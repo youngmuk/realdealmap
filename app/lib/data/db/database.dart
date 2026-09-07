@@ -293,6 +293,25 @@ class AppDatabase extends _$AppDatabase {
     return row.read<int>('c');
   }
 
+  /// 이 지역에서 **실제로 받아 본** 자료 유형.
+  ///
+  /// "받았는데 0건"과 "아직 못 받았다"를 가르는 유일한 근거다. 청크 행은
+  /// 매니페스트에 실린 파일마다 하나씩 남으므로, 0건짜리 유형도 행이 있고
+  /// 매니페스트에 아예 없던 유형만 빠진다.
+  ///
+  /// 이 구별이 필요해진 것은 수집 쪽 사정 때문이다. 한 유형의 일일 쿼터가
+  /// 바닥나면 그 유형만 빠진 채로 배포된다(나머지를 버리지 않으려고 그렇게 했다).
+  /// 그때 화면이 "조건에 맞는 거래가 없습니다"라고만 하면, 사용자는 그 지역에
+  /// 그런 거래가 없다고 읽는다. 실제로는 우리가 아직 못 받은 것이다.
+  Future<Set<String>> coveredDatasetKeys(String sggCd) async {
+    final rows = await customSelect(
+      'SELECT DISTINCT dataset_key AS k FROM chunk_rows WHERE sgg_cd = ?',
+      variables: [Variable<String>(sggCd)],
+      readsFrom: {chunkRows},
+    ).get();
+    return rows.map((r) => r.read<String>('k')).toSet();
+  }
+
   /// 목록 탭이 쓰는 조회 (T5.7).
   ///
   /// **좌표가 없는 거래도 나온다.** 지도에 못 그리는 것과 데이터가 없는 것은

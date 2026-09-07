@@ -9,6 +9,7 @@ import 'package:realdealmap/data/db/database.dart';
 import 'package:realdealmap/features/detail/detail_sheet.dart';
 import 'package:realdealmap/features/list/list_page.dart';
 import 'package:realdealmap/state/app_state.dart';
+import 'package:realdealmap/state/filters.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 목록과 상세 화면 (T5.10).
@@ -47,6 +48,16 @@ TxRowsCompanion _tx(
   areaSqm: const Value(84.97),
   floor: const Value(12),
 );
+
+/// 필터를 고정해 화면에 물린다. 화면을 세워 두고 칩을 눌러 가는 것보다
+/// 무엇을 시험하는지가 분명하다.
+class _FixedFilter extends FilterController {
+  _FixedFilter(this.fixed);
+  final TxFilter fixed;
+
+  @override
+  TxFilter build() => fixed;
+}
 
 void main() {
   late AppDatabase db;
@@ -130,6 +141,98 @@ void main() {
       await pumpList(tester);
 
       expect(find.text('조건에 맞는 거래가 없습니다'), findsOneWidget);
+    });
+
+    // 수집 쪽에서 한 유형의 일일 쿼터가 바닥나면 그 유형만 빠진 채 배포된다.
+    // 그때 "거래가 없습니다"라고만 하면 사용자는 이 지역에 그런 거래가 없다고
+    // 읽는다. 실제로는 우리가 아직 못 받은 것이다.
+    group('아직 못 받은 유형', () {
+      Future<void> chunk(String datasetKey) => db
+          .into(db.chunkRows)
+          .insert(
+            ChunkRowsCompanion.insert(
+              path: 'v1/data/11680/202608/$datasetKey.json.gz',
+              sggCd: '11680',
+              datasetKey: datasetKey,
+              period: '202608',
+              sha256: 'h',
+              records: 0,
+              appliedAt: '2026-09-08T00:00:00Z',
+            ),
+          );
+
+      test('받아 본 유형만 센다', () async {
+        await chunk('apartment/sale');
+
+        expect(await db.coveredDatasetKeys('11680'), {'apartment/sale'});
+      });
+
+      // 0건짜리 유형도 청크 행이 남는다. 그것을 "못 받았다"로 세면 정상적인
+      // 0건까지 안내가 붙어, 정작 중요한 때에 아무도 읽지 않게 된다.
+      test('받았는데 0건인 것은 받은 것으로 센다', () async {
+        await chunk('land/sale');
+
+        final covered = await db.coveredDatasetKeys('11680');
+        expect(covered, contains('land/sale'));
+        expect(missingLabels(const TxFilter(), covered), isNot(contains('토지')));
+      });
+
+      test('조건에 걸린 유형만 말한다', () {
+        const covered = {'apartment/sale', 'apartment/rent'};
+
+        // 아파트만 보고 있으면 토지가 없어도 알릴 일이 아니다
+        expect(
+          missingLabels(const TxFilter(datasetKeys: {'apartment/sale'}), covered),
+          isEmpty,
+        );
+        expect(
+          missingLabels(const TxFilter(datasetKeys: {'land/sale'}), covered),
+          ['토지'],
+        );
+      });
+
+      // 첫 동기화 전에는 무엇이 빠졌는지 말할 수 없다. 그때 다섯 유형을 늘어놓으면
+      // 안내가 아니라 소음이고, 정작 한 유형이 빠졌을 때 아무도 읽지 않는다.
+      test('하나도 못 받았으면 아무 유형도 말하지 않는다', () {
+        expect(missingLabels(const TxFilter(), const {}), isEmpty);
+      });
+
+      test('필터가 비어 있으면 9종 전부를 기준으로 본다', () {
+        // 비어 있음은 "전부"다. 그때 빠진 유형을 안 세면 배너가 안 뜬다
+        final missing = missingLabels(const TxFilter(), {'apartment/sale'});
+
+        expect(missing, contains('토지'));
+        expect(missing, contains('오피스텔'));
+      });
+
+      testWidgets('빠진 유형만 골랐으면 그렇게 말한다', (tester) async {
+        await chunk('apartment/sale');
+        await db.into(db.txRows).insert(_tx('a', lat: 37.5, lng: 127.0));
+
+        SharedPreferences.setMockInitialValues({'region.selected': '11680'});
+        prefs = await SharedPreferences.getInstance();
+
+        tester.view.physicalSize = const Size(1080, 2400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              databaseProvider.overrideWithValue(db),
+              prefsProvider.overrideWithValue(prefs),
+              filterProvider.overrideWith(
+                () => _FixedFilter(const TxFilter(datasetKeys: {'land/sale'})),
+              ),
+            ],
+            child: const MaterialApp(home: Scaffold(body: ListPage())),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('아직 받지 못했습니다'), findsOneWidget);
+        expect(find.text('조건에 맞는 거래가 없습니다'), findsNothing);
+      });
     });
 
     testWidgets('전월세는 보증금/월세로 적는다', (tester) async {

@@ -33,7 +33,7 @@ class ListPage extends ConsumerWidget {
     // 아래 FutureBuilder가 매번 질의를 새로 걸어 스피너가 번쩍인다.
     ref.watch(syncProvider.select((s) => s.revision));
 
-    return FutureBuilder<(List<TxRow>, int)>(
+    return FutureBuilder<_ListData>(
       future: _load(db, sggCd, filter),
       builder: (context, snapshot) {
         final data = snapshot.data;
@@ -41,19 +41,33 @@ class ListPage extends ConsumerWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final (rows, unmapped) = data;
-        if (rows.isEmpty) {
-          return const _Empty('조건에 맞는 거래가 없습니다');
+        final missing = missingLabels(filter, data.covered);
+        if (data.rows.isEmpty) {
+          // 아직 못 받은 유형만 고른 채로 "거래가 없습니다"라고 하면, 사용자는
+          // 이 지역에 그런 거래가 없다고 읽는다. 실제로는 우리가 못 받은 것이다.
+          return _Empty(
+            missing.isEmpty
+                ? '조건에 맞는 거래가 없습니다'
+                : '${missing.join(' · ')} 자료를 아직 받지 못했습니다',
+          );
         }
 
         return ListView.separated(
           padding: const EdgeInsets.only(bottom: 24),
-          itemCount: rows.length + 1,
+          itemCount: data.rows.length + 1,
           separatorBuilder: (_, _) => const Divider(height: 1, indent: 16),
           itemBuilder: (context, i) {
-            if (i == 0) return _UnmappedBanner(count: unmapped);
+            if (i == 0) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _MissingBanner(labels: missing),
+                  _UnmappedBanner(count: data.unmapped),
+                ],
+              );
+            }
             return _Tile(
-              rows[i - 1],
+              data.rows[i - 1],
               // 상세를 닫은 직후가 안전 전환 지점이다 (FR-6). ref는 여기에만
               // 있으므로 타일이 아니라 목록이 알린다.
               onClosed: () => ref.adMoment(AdMoment.detailClosed),
@@ -64,12 +78,12 @@ class ListPage extends ConsumerWidget {
     );
   }
 
-  Future<(List<TxRow>, int)> _load(
+  Future<_ListData> _load(
     AppDatabase db,
     String sggCd,
     TxFilter filter,
-  ) async => (
-    await db.listTransactions(
+  ) async => _ListData(
+    rows: await db.listTransactions(
       sggCd: sggCd,
       datasetKeys: filter.datasetKeysOrNull,
       includeCancelled: filter.includeCancelled,
@@ -77,8 +91,73 @@ class ListPage extends ConsumerWidget {
       maxAmount: filter.maxAmount,
       months: filter.months.isEmpty ? null : filter.months,
     ),
-    await db.unmappedCount(sggCd),
+    unmapped: await db.unmappedCount(sggCd),
+    covered: await db.coveredDatasetKeys(sggCd),
   );
+}
+
+class _ListData {
+  const _ListData({
+    required this.rows,
+    required this.unmapped,
+    required this.covered,
+  });
+  final List<TxRow> rows;
+  final int unmapped;
+
+  /// 이 지역에서 실제로 받아 본 자료 유형
+  final Set<String> covered;
+}
+
+/// 지금 보고 있는 조건 중 **아직 받지 못한** 매물 유형의 이름.
+///
+/// 한 유형의 일일 쿼터가 바닥나면 수집이 그 유형만 빼고 배포한다. 그 상태를
+/// 말하지 않으면 "받았는데 0건"과 구별되지 않고, 사용자는 이 지역에 그런 거래가
+/// 없다고 읽는다. 조건에 걸린 유형만 말한다 — 안 보고 있는 유형까지 알릴 일은 아니다.
+List<String> missingLabels(TxFilter filter, Set<String> covered) {
+  // 하나도 못 받은 상태는 "이 유형이 빠졌다"가 아니라 "아직 아무것도 안 받았다"다.
+  // 그때까지 유형을 세면 첫 동기화 전에 다섯 유형을 늘어놓게 되고, 그건 안내가
+  // 아니라 소음이다. 무엇이 빠졌는지는 뭔가 받아 본 뒤에야 말할 수 있다.
+  if (covered.isEmpty) return const [];
+
+  final asked = filter.datasetKeys.isEmpty ? kDatasetKeys : filter.datasetKeys;
+  final types = <String>{};
+  for (final key in asked) {
+    if (covered.contains(key)) continue;
+    types.add(kPropertyLabels[key.split('/').first] ?? key);
+  }
+  // kPropertyLabels의 순서를 따른다. Set 순서를 그대로 쓰면 실행마다 달라 보인다.
+  return kPropertyLabels.values.where(types.contains).toList();
+}
+
+/// 아직 못 받은 유형을 밝힌다.
+class _MissingBanner extends StatelessWidget {
+  const _MissingBanner({required this.labels});
+  final List<String> labels;
+
+  @override
+  Widget build(BuildContext context) {
+    if (labels.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Palette.warnSoft,
+        borderRadius: BorderRadius.circular(6),
+        border: const Border(left: BorderSide(color: Palette.warn, width: 3)),
+      ),
+      child: Text(
+        '${labels.join(' · ')} 자료를 아직 받지 못했습니다 — 원천의 일일 한도 때문이며, '
+        '다음 갱신에서 채워집니다. 없는 것이 아니라 아직 안 온 것입니다.',
+        style: const TextStyle(
+          fontSize: 12.5,
+          color: Palette.ink2,
+          height: 1.45,
+        ),
+      ),
+    );
+  }
 }
 
 /// 지도에 못 그리는 건수.
