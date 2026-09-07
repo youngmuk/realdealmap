@@ -35,14 +35,22 @@ const fieldsInFixture = (xml: string): readonly string[] => {
 
 const available = datasetKeys().filter((key) => existsSync(fixturePath(key)));
 
+/**
+ * 픽스처 확보 검사는 **`skipIf` 바깥에 둔다.**
+ *
+ * 안에 두면 픽스처를 전부 지웠을 때 `skipIf`가 이 검사까지 건너뛰어 조용히 통과한다.
+ * 하나만 지우면 잡히는데 전부 지우면 통과하는, 게이트처럼 보이기만 하는 게이트가 된다.
+ * 픽스처는 git이 추적하므로 "없을 수도 있다"는 전제 자체가 틀렸다 —
+ * 없으면 그것이 곧 결함이다(G1 조건).
+ */
+test('9종 픽스처가 모두 확보되어 있다 (G1)', () => {
+  expect(available).toHaveLength(9);
+});
+
 describe.skipIf(available.length === 0)('실응답 픽스처 대조', () => {
   test.each(available)('%s 명세가 실응답 필드와 정확히 일치한다', (key) => {
     const actual = fieldsInFixture(readFileSync(fixturePath(key), 'utf8'));
     expect([...actual].sort()).toEqual([...DATASETS[key].fields].sort());
-  });
-
-  test('9종 픽스처가 모두 확보되어 있다', () => {
-    expect(available).toHaveLength(9);
   });
 
   test('마스킹 등급이 실제 지번 값과 일치한다', () => {
