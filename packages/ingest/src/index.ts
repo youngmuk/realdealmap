@@ -112,6 +112,7 @@ export {
   readIndex,
   sameSummary,
   summarize,
+  updateRegionIndex,
   withRegion,
   writeIndex,
 } from './region-index.js';

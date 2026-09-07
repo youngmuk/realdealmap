@@ -33,6 +33,7 @@ import {
   R2Client,
   readDictionary,
   readManifest,
+  updateRegionIndex,
 } from '@realdealmap/ingest';
 
 import { loadEnv } from './env.mjs';
@@ -52,6 +53,15 @@ const inflate = (bytes) => {
 };
 
 const located = (records) => records.filter((r) => r.lat !== null && r.lat !== undefined).length;
+
+/** 색인을 지금 청크가 말하는 것과 맞춘다. 바뀐 것이 없으면 아무것도 쓰지 않는다. */
+const reconcileIndex = async (r2, sggCd, chunks, manifest, dryRun) => {
+  if (dryRun) return;
+  const summary = await updateRegionIndex(r2, sggCd, chunks, manifest);
+  console.log(
+    summary ? `  색인 갱신 — 좌표 ${summary.located}/${summary.sampled}건` : '  색인 그대로',
+  );
+};
 
 const main = async () => {
   loadEnv();
@@ -101,15 +111,23 @@ const main = async () => {
   const gain = after - before;
   console.log(`  좌표 ${before} → ${after}건 (${gain >= 0 ? '+' : ''}${gain})`);
 
-  // 이득이 없으면 올리지 않는다. 같은 내용을 다시 올리면 매니페스트의 refreshedAt만
-  // 바뀌어 앱이 108개 청크를 통째로 다시 받는다 — 아무것도 달라지지 않은 채로.
-  if (gain <= 0) {
-    console.log('  붙일 좌표가 없다. 그대로 둔다.');
-    summarize(`### ${sggCd} 다시 굽기 — 변화 없음 (좌표 ${after}건)`);
-    return;
-  }
   if (plan) {
     console.log('  계획만 세우고 끝낸다.');
+    return;
+  }
+
+  // 이득이 없으면 청크는 올리지 않는다. 같은 내용을 다시 올리면 매니페스트의
+  // refreshedAt만 바뀌어 앱이 108개 청크를 통째로 다시 받는다 — 아무것도
+  // 달라지지 않은 채로.
+  //
+  // **색인은 그래도 맞춘다.** 청크에 좌표가 있는데 색인이 그것을 모르면, 앱은
+  // 지도를 열 중심점이 없어 "찍을 좌표가 없습니다"를 계속 띄운다. 실제로
+  // 그랬다 — 다시 굽기가 청크만 바꾸고 색인을 안 건드린 회차가 있었다.
+  // 바뀐 것이 없으면 updateRegionIndex가 알아서 아무것도 쓰지 않는다.
+  if (gain <= 0) {
+    console.log('  붙일 좌표가 없다. 청크는 그대로 둔다.');
+    await reconcileIndex(r2, sggCd, chunks, manifest, dryRun);
+    summarize(`### ${sggCd} 다시 굽기 — 청크 변화 없음 (좌표 ${after}건)`);
     return;
   }
 
@@ -124,6 +142,10 @@ const main = async () => {
     process.exitCode = EXIT.held;
     return;
   }
+
+  // 색인도 갱신한다. 청크만 바꾸고 색인을 두면 좌표를 다 붙인 지역이 앱에서는
+  // 여전히 "찍을 좌표가 없습니다"로 남는다 — 지도를 여는 중심점이 색인에 있다.
+  await reconcileIndex(r2, sggCd, chunks, result.manifest, dryRun);
 
   const coverage = coverageByDataset(allRecords, dictionary);
   const total = coverage.reduce((a, r) => a + r.total, 0);

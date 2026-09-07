@@ -29,17 +29,13 @@ import {
   MolitClient,
   normalizeAll,
   publishRegion,
+  updateRegionIndex,
   QuotaExceededError,
   readDictionary,
-  readIndex,
   recentPeriods,
   R2Client,
-  sameSummary,
-  summarize as summarizeRegion,
   withEntries,
-  withRegion,
   writeDictionary,
-  writeIndex,
 } from '../dist/index.js';
 
 import { loadEnv } from './env.mjs';
@@ -125,37 +121,13 @@ const summarize = (markdown) => {
 };
 
 
-/**
- * 지역 색인을 갱신한다.
- *
- * 앱은 경계 폴리곤이 없어서 이 파일로 "지금 보는 자리가 어느 시군구인가"를 푼다.
- * 좌표가 실린 거래에서 경계상자를 뽑으므로 별도 데이터가 필요 없다.
- *
- * **읽고-고쳐-쓰기라 서로 다른 두 지역이 동시에 배포되면 한쪽이 덮일 수 있다.**
- * 지역별 concurrency 그룹은 같은 지역만 막는다. 다만 피해가 한 시간짜리다 —
- * 덮인 지역은 다음 갱신에서 자기 항목을 다시 넣는다. 매 배포마다 전체를 다시
- * 만드는 비용(지역 수만큼의 GET)보다 이쪽이 싸다.
- */
+/** 색인 갱신 한 줄 보고. 규칙과 경합 이야기는 updateRegionIndex 쪽에 있다. */
 const updateIndex = async (r2, sggCd, chunks, manifest) => {
-  const region = findRegion(sggCd);
-  if (!region) throw new Error(`시군구 코드를 카탈로그에서 찾을 수 없습니다: ${sggCd}`);
-
-  // 전체 건수는 **매니페스트**에서 온다. 이번 청크에서 세면 최근 3개월 갱신이
-  // 12개월 적재를 1/4로 줄여 보이게 한다 — 지역 선택 화면이 그 숫자를 쓴다.
-  const summary = summarizeRegion(
-    sggCd,
-    region,
-    chunks,
-    manifest.refreshedAt,
-    manifest.files.reduce((sum, f) => sum + f.records, 0),
-  );
-  const index = await readIndex(r2);
-  if (sameSummary(index.regions.find((r) => r.sggCd === sggCd), summary)) {
+  const summary = await updateRegionIndex(r2, sggCd, chunks, manifest);
+  if (!summary) {
     console.log('  색인 그대로');
     return;
   }
-
-  await writeIndex(r2, withRegion(index, summary, new Date()));
   const box = summary.bbox
     ? `(${summary.bbox.south}~${summary.bbox.north}, ${summary.bbox.west}~${summary.bbox.east})`
     : '(좌표 없음)';

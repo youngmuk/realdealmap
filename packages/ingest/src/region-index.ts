@@ -1,4 +1,7 @@
+import { findRegion } from '@realdealmap/shared';
+
 import type { Chunk } from './chunk.js';
+import type { Manifest } from './publish.js';
 import type { R2Client } from './r2.js';
 
 /**
@@ -201,4 +204,43 @@ export const writeIndex = async (r2: R2Client, index: RegionIndex): Promise<void
     // 매니페스트와 같은 이유로 짧게 잡는다. 지역이 늘면 앱이 곧 알아야 한다(§5.3).
     cacheControl: 'public, max-age=300, must-revalidate',
   });
+};
+
+/**
+ * 한 지역의 색인 항목을 갱신한다.
+ *
+ * 배포하는 쪽마다 따로 쓰면 **한쪽만 갱신하는 상태**가 생긴다. 실제로 그랬다 —
+ * 다시 굽기가 청크와 매니페스트는 바꿔 놓고 색인은 건드리지 않아, 좌표를 다 붙인
+ * 지역이 앱에서는 여전히 "찍을 좌표가 없습니다"였다. 배포한 쪽이 색인도 갱신한다.
+ *
+ * **읽고-고쳐-쓰기라 서로 다른 두 지역이 동시에 배포되면 한쪽이 덮일 수 있다.**
+ * 다만 피해가 한 회차짜리다 — 덮인 지역은 다음 갱신에서 자기 항목을 다시 넣는다.
+ * 매 배포마다 전체를 다시 만드는 비용(지역 수만큼의 GET)보다 이쪽이 싸다.
+ *
+ * @returns 갱신했으면 요약, 바뀐 것이 없으면 undefined.
+ */
+export const updateRegionIndex = async (
+  r2: R2Client,
+  sggCd: string,
+  chunks: readonly Chunk[],
+  manifest: Manifest,
+): Promise<RegionSummary | undefined> => {
+  const region = findRegion(sggCd);
+  if (!region) throw new Error(`시군구 코드를 카탈로그에서 찾을 수 없습니다: ${sggCd}`);
+
+  // 전체 건수는 **매니페스트**에서 온다. 이번 청크에서 세면 최근 3개월 갱신이
+  // 12개월 적재를 1/4로 줄여 보이게 한다 — 지역 선택 화면이 그 숫자를 쓴다.
+  const summary = summarize(
+    sggCd,
+    region,
+    chunks,
+    manifest.refreshedAt,
+    manifest.files.reduce((sum, f) => sum + f.records, 0),
+  );
+
+  const index = await readIndex(r2);
+  if (sameSummary(index.regions.find((r) => r.sggCd === sggCd), summary)) return undefined;
+
+  await writeIndex(r2, withRegion(index, summary, new Date()));
+  return summary;
 };
