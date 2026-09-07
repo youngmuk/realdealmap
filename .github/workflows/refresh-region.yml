@@ -7,6 +7,11 @@ name: refresh-region
 # 그 파일을 바꾸는 작업이 이 워크플로 하나로 모여 있어야 경쟁이 생기지 않는다.
 
 on:
+  # Worker가 앱의 갱신 요청을 받아 여기로 넘긴다(AD-5).
+  # workflow_dispatch와 입력 이름이 다르므로 아래에서 하나로 합친다.
+  repository_dispatch:
+    types: [refresh-region]
+
   workflow_dispatch:
     inputs:
       sggCd:
@@ -31,7 +36,7 @@ on:
 # (매니페스트가 옛 청크를 가리키므로 앱은 멀쩡하다) 헛돈 호출이 쿼터를 먹는다.
 # 뒤에 온 실행을 기다리게 하는 편이 낫다 — 어차피 같은 지역의 중복 갱신은 무의미하다.
 concurrency:
-  group: sgg-${{ inputs.sggCd }}
+  group: sgg-${{ inputs.sggCd || github.event.client_payload.sggCd }}
   cancel-in-progress: false
 
 permissions:
@@ -77,8 +82,8 @@ jobs:
             exit 1
           fi
         env:
-          SGG_CD: ${{ inputs.sggCd }}
-          MONTHS: ${{ inputs.months }}
+          SGG_CD: ${{ inputs.sggCd || github.event.client_payload.sggCd }}
+          MONTHS: ${{ inputs.months || github.event.client_payload.months || '3' }}
 
       - name: 수집 및 배포
         id: publish
@@ -87,8 +92,8 @@ jobs:
           node packages/ingest/scripts/publish-region.mjs "$SGG_CD" "--months=$MONTHS" ${DRY_RUN:+--dry-run}
           echo "code=$?" >> "$GITHUB_OUTPUT"
         env:
-          SGG_CD: ${{ inputs.sggCd }}
-          MONTHS: ${{ inputs.months }}
+          SGG_CD: ${{ inputs.sggCd || github.event.client_payload.sggCd }}
+          MONTHS: ${{ inputs.months || github.event.client_payload.months || '3' }}
           DRY_RUN: ${{ inputs.dryRun && '1' || '' }}
           DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}

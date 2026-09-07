@@ -1,0 +1,23 @@
+name = "realdealmap-trigger"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# 앱이 부르는 경로는 이것 하나뿐이다. 매니페스트와 청크는 R2에서 직접 받는다(AD-1).
+workers_dev = true
+
+[vars]
+GITHUB_REPO = "youngmuk/realdealmap"
+
+# 지역당 인스턴스 하나. 시군구 코드를 이름으로 삼는다.
+[[durable_objects.bindings]]
+name = "REGION_TRIGGER"
+class_name = "RegionTrigger"
+
+[[durable_objects.bindings]]
+name = "TRIGGER_BUDGET"
+class_name = "TriggerBudget"
+
+# SQLite 백엔드여야 Workers Free에서 쓸 수 있다.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RegionTrigger", "TriggerBudget"]

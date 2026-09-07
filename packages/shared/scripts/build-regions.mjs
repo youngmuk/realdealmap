@@ -147,6 +147,32 @@ async function main() {
     'utf8',
   );
 
+  // Worker는 파일시스템이 없다. 조회 대상 코드 집합만 fs 없이 import할 수 있게
+  // 모듈로 굽는다. 코드 자체를 손으로 적으면 카탈로그와 어긋나므로 여기서 생성하고,
+  // `codes.generated.test.ts`가 regions.json과 일치하는지 잠근다.
+  await writeFile(
+    resolve(HERE, '../src/codes.generated.ts'),
+    [
+      '// 자동 생성 파일. 직접 고치지 말고 `npm run regions:build`를 실행한다.',
+      '//',
+      '// Worker에서 쓰려고 만든 fs 없는 사본이다. `regions.ts`는 node:fs를 쓰므로',
+      '// Cloudflare Workers 런타임에서 import할 수 없다.',
+      '',
+      `/** 생성 시각 ${generatedAt} */`,
+      'export const QUERYABLE_SGG_CODES: readonly string[] = [',
+      ...queryable.map((r) => `  '${r.sggCd}', // ${r.name}`),
+      '];',
+      '',
+      '/** 조회 대상 시군구인지. Worker의 미등록 코드 거부(R-11 ③)에 쓴다. */',
+      'export const isQueryableSggCd = (sggCd: string): boolean =>',
+      '  QUERYABLE_CODE_SET.has(sggCd);',
+      '',
+      'const QUERYABLE_CODE_SET = new Set(QUERYABLE_SGG_CODES);',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
   await writeFile(
     resolve(OUT_DIR, 'legacy-codes.json'),
     `${JSON.stringify(

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T13:55:06.058Z",
+  "generatedAt": "2026-09-07T10:51:20.919Z",
   "source": "행정표준코드관리시스템 법정동코드 전체자료 (code.go.kr)",
   "note": "실거래가 API의 LAWD_CD는 queryable=true 인 항목의 sggCd를 사용한다.",
   "totalSggLevel": 269,
