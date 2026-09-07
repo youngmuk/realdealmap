@@ -19,9 +19,9 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "verify": "npm run typecheck && npm run lint && npm run coverage",
-    "verify:r2": "node packages/ingest/scripts/verify-r2.mjs",
-    "run:region": "node packages/ingest/scripts/run-region.mjs",
-    "publish:region": "node packages/ingest/scripts/publish-region.mjs"
+    "verify:r2": "tsc --build && node packages/ingest/scripts/verify-r2.mjs",
+    "run:region": "tsc --build && node packages/ingest/scripts/run-region.mjs",
+    "publish:region": "tsc --build && node packages/ingest/scripts/publish-region.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260907.1",

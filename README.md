@@ -132,6 +132,11 @@ OSM 이용정책은 앱 트래픽을 허용하지 않으므로 그대로 출시�
 
 ## 손으로 돌리는 것
 
+스크립트는 `dist`를 import한다. `npm run` 경로는 앞에 `tsc --build`가 붙어 있어
+갓 고친 코드가 반영되지만, `node packages/…`로 **직접 부르면 옛 `dist`가 돈다.**
+고친 것이 안 먹는 것처럼 보이면 여기를 먼저 의심한다. 워크플로는 전부
+`npm run typecheck`(= `tsc --build`)를 먼저 돌린다.
+
 ```bash
 npm run verify                                    # 타입·린트·커버리지
 node packages/ingest/scripts/backfill-plan.mjs --months=12 --limit=5
