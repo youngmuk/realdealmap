@@ -1,0 +1,56 @@
+name: app-ci
+
+# 앱의 분석·테스트. 백엔드(verify)와 분리한 이유는 도구가 다르기 때문이다 —
+# 한 잡에 묶으면 Dart를 안 건드린 변경에도 Flutter SDK를 받는다.
+
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', '.github/workflows/app-ci.yml']
+  pull_request:
+    paths: ['app/**', '.github/workflows/app-ci.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      # 액션을 태그가 아니라 커밋 SHA로 고정한다. 이 저장소의 다른 워크플로와 같은 이유다.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+
+      - name: 의존성
+        run: flutter pub get
+
+      # 생성 파일(.g.dart)을 저장소에 넣어 두었으므로 여기서 만들지 않는다.
+      # 다만 **소스와 어긋나면** 손으로 고친 것이라 잡아야 한다.
+      - name: 생성 파일이 소스와 맞는가
+        run: |
+          dart run build_runner build
+          if ! git diff --quiet -- .; then
+            echo "::error::생성 파일이 소스와 다릅니다. build_runner를 돌리고 커밋하세요."
+            git --no-pager diff --stat -- .
+            exit 1
+          fi
+
+      - name: 서식
+        run: dart format --set-exit-if-changed .
+
+      # info 수준까지 실패로 본다. 경고를 쌓아 두면 곧 아무도 안 읽는다.
+      - name: 정적 분석
+        run: flutter analyze --fatal-infos
+
+      - name: 테스트
+        run: flutter test

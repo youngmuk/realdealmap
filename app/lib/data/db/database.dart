@@ -181,6 +181,62 @@ class AppDatabase extends _$AppDatabase {
     return row.read<int>('c');
   }
 
+  /// 목록 탭이 쓰는 조회 (T5.7).
+  ///
+  /// **좌표가 없는 거래도 나온다.** 지도에 못 그리는 것과 데이터가 없는 것은
+  /// 다르고, 목록은 그 차이를 메우는 자리다 — 단독·토지처럼 원천이 지번을
+  /// 가리는 유형은 목록에서만 볼 수 있다(FR-2).
+  ///
+  /// 최신 계약일 순으로 준다. 실거래는 "지금 얼마인가"를 보는 데이터라
+  /// 오래된 것을 먼저 보여줄 이유가 없다.
+  Future<List<TxRow>> listTransactions({
+    required String sggCd,
+    Set<String>? datasetKeys,
+    bool includeCancelled = true,
+    int? minAmount,
+    int? maxAmount,
+    Set<String>? months,
+    int limit = 200,
+    int offset = 0,
+  }) {
+    final query = select(txRows)..where((t) => t.sggCd.equals(sggCd));
+
+    if (datasetKeys != null && datasetKeys.isNotEmpty) {
+      query.where((t) => t.datasetKey.isIn(datasetKeys));
+    }
+    if (months != null && months.isNotEmpty) {
+      query.where((t) => t.period.isIn(months));
+    }
+    if (!includeCancelled) query.where((t) => t.cancelled.equals(false));
+
+    // 매매는 amount, 전월세는 deposit에 값이 있다. 가격 필터는 둘 중 있는 쪽을 본다 —
+    // amount만 보면 전월세가 통째로 걸러지고, 사용자는 필터가 고장 났다고 느낀다.
+    if (minAmount != null) {
+      query.where(
+        (t) =>
+            t.amount.isBiggerOrEqualValue(minAmount) |
+            t.deposit.isBiggerOrEqualValue(minAmount),
+      );
+    }
+    if (maxAmount != null) {
+      query.where(
+        (t) =>
+            t.amount.isSmallerOrEqualValue(maxAmount) |
+            t.deposit.isSmallerOrEqualValue(maxAmount),
+      );
+    }
+
+    query
+      ..orderBy([
+        (t) =>
+            OrderingTerm(expression: t.contractedOn, mode: OrderingMode.desc),
+        (t) => OrderingTerm(expression: t.txId),
+      ])
+      ..limit(limit, offset: offset);
+
+    return query.get();
+  }
+
   Future<TxRow?> byTxId(String txId) =>
       (select(txRows)..where((t) => t.txId.equals(txId))).getSingleOrNull();
 

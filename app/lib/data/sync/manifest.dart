@@ -89,11 +89,14 @@ class Manifest {
     }
 
     final refreshedAt = DateTime.tryParse(json['refreshedAt'] as String? ?? '');
-    if (refreshedAt == null)
+    if (refreshedAt == null) {
       throw ManifestFormatException('refreshedAt이 시각이 아님');
+    }
 
     final rawFiles = json['files'];
-    if (rawFiles is! List) throw ManifestFormatException('files가 목록이 아님');
+    if (rawFiles is! List) {
+      throw ManifestFormatException('files가 목록이 아님');
+    }
 
     return Manifest(
       schemaVersion: version,
