@@ -13,3 +13,4 @@ packages/shared/raw/
 .wrangler/
 .dev.vars
 out/
+packages/ingest/spike-geocode.json
