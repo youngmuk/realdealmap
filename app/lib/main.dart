@@ -1,6 +1,6 @@
-import 'dart:ui';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,6 +28,42 @@ void _catchEverything() {
   };
 }
 
+/// 프레임 시간을 재서 로그에 낸다 (T6.4).
+///
+/// `dumpsys gfxinfo`는 Flutter를 못 본다 — HWUI 파이프라인 밖에서 그리기 때문에
+/// 프레임 수가 늘 0으로 나온다. 그래서 프레임워크가 직접 주는 값을 쓴다.
+///
+/// **프로파일 빌드에서만 돈다.** 출시본에서 매 프레임 콜백을 도는 것은
+/// 재려는 대상을 재는 행위가 바꾸는 쪽이다.
+void _measureFrames() {
+  if (!kProfileMode) return;
+
+  final samples = <int>[];
+  SchedulerBinding.instance.addTimingsCallback((timings) {
+    for (final t in timings) {
+      // 만드는 시간과 그리는 시간을 합친다. 사용자가 겪는 것은 둘의 합이다.
+      samples.add(
+        t.buildDuration.inMicroseconds + t.rasterDuration.inMicroseconds,
+      );
+    }
+    if (samples.length < 120) return;
+
+    final sorted = [...samples]..sort();
+    int at(double q) =>
+        sorted[(sorted.length * q).floor().clamp(0, sorted.length - 1)];
+    // 60Hz 기준 한 프레임은 16,667µs다. 넘으면 사용자가 끊김으로 느낀다.
+    final janky = sorted.where((v) => v > 16667).length;
+    debugPrint(
+      '[RDM-frame] n=${sorted.length} '
+      'p50=${(at(0.5) / 1000).toStringAsFixed(1)}ms '
+      'p90=${(at(0.9) / 1000).toStringAsFixed(1)}ms '
+      'p99=${(at(0.99) / 1000).toStringAsFixed(1)}ms '
+      'jank=$janky (${(janky * 100 / sorted.length).toStringAsFixed(1)}%)',
+    );
+    samples.clear();
+  });
+}
+
 /// 앱 진입점.
 ///
 /// DB와 설정을 여기서 한 번 만들어 override로 꽂는다. 프로바이더를 비동기로
@@ -36,6 +72,7 @@ void _catchEverything() {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _catchEverything();
+  _measureFrames();
 
   final prefs = await SharedPreferences.getInstance();
   final database = AppDatabase();
