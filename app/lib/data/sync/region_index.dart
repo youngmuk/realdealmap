@@ -128,9 +128,34 @@ class RegionIndex {
   }
 
   /// 시도 → 시군구. 지역 선택 화면이 이 순서로 보여준다.
-  Map<String, List<RegionSummary>> get bySido {
+  Map<String, List<RegionSummary>> get bySido => _group(regions);
+
+  /// 검색어에 걸리는 지역만 시도별로 묶는다.
+  ///
+  /// 256개를 시도별로만 늘어놓으면 원하는 곳까지 열 번 넘게 쓸어 내려야 한다.
+  /// 실제로 울산 중구를 찾는 데 열세 번을 밀었다.
+  ///
+  /// 시군구 이름과 **시도 이름을 함께** 본다. "중구"는 여러 시도에 있어 시도로
+  /// 좁히는 일이 흔하고, "울산"만 쳐서 그 시도 전체를 보는 것도 자연스럽다.
+  /// 걸린 것도 시도별로 묶어 둔다 — "중구"가 여럿일 때 어느 중구인지는
+  /// 시도 이름으로만 구별된다.
+  Map<String, List<RegionSummary>> bySidoMatching(String query) {
+    final q = query.trim();
+    if (q.isEmpty) return bySido;
+
+    return _group(
+      regions.where(
+        (r) =>
+            r.displayName.contains(q) ||
+            r.sidoName.contains(q) ||
+            r.name.contains(q),
+      ),
+    );
+  }
+
+  static Map<String, List<RegionSummary>> _group(Iterable<RegionSummary> rows) {
     final grouped = <String, List<RegionSummary>>{};
-    for (final r in regions) {
+    for (final r in rows) {
       (grouped[r.sidoName] ??= []).add(r);
     }
     for (final list in grouped.values) {

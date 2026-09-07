@@ -217,4 +217,57 @@ void main() {
       expect(gangnam.displayName, '강남구');
     });
   });
+
+  // 256개를 시도별로만 늘어놓으면 원하는 곳까지 열 번 넘게 쓸어 내려야 한다.
+  // 실기기에서 울산 중구를 찾는 데 열세 번을 밀었다.
+  group('지역 검색', () {
+    RegionSummary at(String sggCd, String sido, String sgg) => RegionSummary(
+      sggCd: sggCd,
+      name: '$sido $sgg',
+      sidoName: sido,
+      sggName: sgg,
+      records: 10,
+      located: 10,
+      refreshedAt: '2026-09-08T00:00:00Z',
+    );
+
+    final index = RegionIndex([
+      at('11680', '서울특별시', '강남구'),
+      at('26110', '부산광역시', '중구'),
+      at('31110', '울산광역시', '중구'),
+      at('31140', '울산광역시', '남구'),
+    ]);
+
+    test('빈 검색어는 전부 보여준다', () {
+      expect(index.bySidoMatching('').values.expand((v) => v), hasLength(4));
+      expect(index.bySidoMatching('   ').values.expand((v) => v), hasLength(4));
+    });
+
+    test('시군구 이름으로 찾는다', () {
+      final hit = index.bySidoMatching('강남').values.expand((v) => v);
+
+      expect(hit.map((r) => r.sggCd), ['11680']);
+    });
+
+    // "울산"만 쳐서 그 시도 전체를 보는 것은 자연스러운 기대다.
+    test('시도 이름으로도 찾는다', () {
+      final hit = index.bySidoMatching('울산').values.expand((v) => v);
+
+      expect(hit.map((r) => r.sggCd), containsAll(['31110', '31140']));
+      expect(hit, hasLength(2));
+    });
+
+    // 여기가 핵심이다. 중구는 여럿이고, 어느 중구인지는 시도 이름으로만 갈린다.
+    test('같은 이름이 여럿이면 시도별로 나눠 보여준다', () {
+      final groups = index.bySidoMatching('중구');
+
+      expect(groups.keys, containsAll(['부산광역시', '울산광역시']));
+      expect(groups['부산광역시']!.single.sggCd, '26110');
+      expect(groups['울산광역시']!.single.sggCd, '31110');
+    });
+
+    test('걸리는 것이 없으면 빈 묶음', () {
+      expect(index.bySidoMatching('없는동네'), isEmpty);
+    });
+  });
 }
