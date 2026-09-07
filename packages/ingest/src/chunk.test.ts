@@ -118,6 +118,21 @@ describe('입력 검증', () => {
     expect(() => buildChunk('11110', 'apartment/sale', period, apt)).toThrow(ChunkError);
   });
 
+  // 이 값들이 통과하면 그대로 R2 오브젝트 키가 된다. `..`는 경로를 거슬러 올라가고,
+  // 나머지는 예상 밖 접두사를 만들어 지역 단위 나열·정리를 조용히 어긋나게 한다.
+  test.each(['1111', '111100', '', '1111a', '../11110', '11/10', '11 10'])(
+    '시군구 코드 %s는 거부한다',
+    (sggCd) => {
+      expect(() => buildChunk(sggCd, 'apartment/sale', '202608', [])).toThrow(ChunkError);
+    },
+  );
+
+  test('거부된 코드는 오브젝트 키까지 가지 못한다', () => {
+    expect(() => buildChunk('../etc', 'apartment/sale', '202608', [])).toThrow(
+      /시군구 코드 형식이 아님/,
+    );
+  });
+
   test('다른 유형이 섞이면 거부한다', () => {
     const mixed = [...apt, ...load('land/sale')];
     expect(() => build(mixed)).toThrow(ChunkError);

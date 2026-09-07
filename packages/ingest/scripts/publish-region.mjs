@@ -29,6 +29,20 @@ import {
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 /**
+ * `.env` 한 줄의 값을 푼다.
+ *
+ * 따옴표로 감싸면 그 안을 값으로 본다. 감싸지 않았을 때만 `#` 이후를 주석으로 버린다 —
+ * 인증키에 `#`이 들어갈 수 있어서, 따옴표 안까지 자르면 키가 조용히 잘린다.
+ * 잘린 키는 오류가 아니라 인증 실패로 나타나므로 원인을 찾기 어렵다.
+ */
+const unquote = (raw) => {
+  const v = raw.trim();
+  const quoted = /^(["'])([\s\S]*)\1$/.exec(v);
+  if (quoted) return quoted[2];
+  return v.split('#')[0].trim();
+};
+
+/**
  * 로컬은 `.env`, CI는 환경변수(GitHub Secrets)에서 읽는다.
  * 파일이 없는 것은 정상이므로 조용히 넘어간다 — CI에는 애초에 없다.
  */
@@ -41,8 +55,9 @@ const loadEnv = () => {
     return;
   }
   for (const line of raw.split(/\r?\n/)) {
-    const m = /^([A-Z0-9_]+)=(.*)$/.exec(line);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+    const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+    if (!m || process.env[m[1]] !== undefined) continue;
+    process.env[m[1]] = unquote(m[2]);
   }
 };
 
@@ -74,6 +89,8 @@ const main = async () => {
   const dryRun = args.includes('--dry-run');
   const monthsArg = args.find((a) => a.startsWith('--months='));
   const months = monthsArg ? Number(monthsArg.slice('--months='.length)) : 3;
+  // 상한은 `recentPeriods`가 MAX_MONTHS로 강제한다. 여기서는 형식만 본다 —
+  // 두 곳에 숫자를 적어 두면 언젠가 어긋난다.
   if (!Number.isInteger(months) || months < 1) throw new Error(`--months 값이 잘못됨: ${monthsArg}`);
   const [sggCd = '11680'] = args.filter((a) => !a.startsWith('--'));
 
@@ -120,18 +137,15 @@ const main = async () => {
 
   if (result.hold) {
     const h = result.hold;
-    console.log(
+    const why =
       h.kind === 'recordDrop'
-        ? `  보류 — 건수 급락 ${h.before} → ${h.after} (${(h.ratio * 100).toFixed(1)}%). 매니페스트를 바꾸지 않았다.`
-        : `  보류 — 업로드 상한 초과 ${h.needed} > ${h.cap}. 매니페스트를 바꾸지 않았다.`,
-    );
-    summarize(
-      h.kind === 'recordDrop'
-        ? `### ⛔ ${resolved} 배포 보류
-건수 급락 **${h.before} → ${h.after}** (${(h.ratio * 100).toFixed(1)}%). 매니페스트를 바꾸지 않았다.`
-        : `### ⛔ ${resolved} 배포 보류
-업로드 상한 초과 **${h.needed} > ${h.cap}**. 매니페스트를 바꾸지 않았다.`,
-    );
+        ? `건수 급락 ${h.before} → ${h.after} (${(h.ratio * 100).toFixed(1)}%)`
+        : h.kind === 'datasetDrop'
+          ? `유형 실종 ${h.vanished.length}건 — ${h.vanished.join(', ')}`
+          : `업로드 상한 초과 ${h.needed} > ${h.cap}`;
+
+    console.log(`  보류 — ${why}. 매니페스트를 바꾸지 않았다.`);
+    summarize(`### ⛔ ${resolved} 배포 보류\n${why}. 매니페스트를 바꾸지 않았다.`);
     process.exitCode = EXIT.held;
     return;
   }

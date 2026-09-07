@@ -35,8 +35,19 @@ const pad2 = (value: number): string => String(value).padStart(2, '0');
  * 기준 연월부터 과거로 `count`개의 `YYYYMM`을 만든다.
  * 첫 항목이 기준월이고 뒤로 갈수록 과거다.
  */
+/**
+ * 한 번에 다룰 수 있는 최대 개월 수.
+ *
+ * 제품 범위가 12개월이다. 상한이 워크플로 YAML에만 있으면 이 라이브러리를 직접 쓰는
+ * 경로(로컬 실행, 다른 워크플로)에서 `--months=999` 같은 값이 그대로 통과해
+ * 원천 API를 수천 회 두드린다. R2 쓰기는 `maxUploads`가 막지만 그건 이미
+ * 국토부 쿼터를 태운 뒤다. 경계에서 막는다.
+ */
+export const MAX_MONTHS = 12;
+
 export const recentPeriods = (from: Date, count: number): readonly string[] => {
   if (!Number.isInteger(count) || count < 1) throw new TaskError(`개월 수가 1 이상이 아님: ${count}`);
+  if (count > MAX_MONTHS) throw new TaskError(`개월 수가 ${MAX_MONTHS}을 넘음: ${count}`);
 
   const periods: string[] = [];
   const year = from.getUTCFullYear();

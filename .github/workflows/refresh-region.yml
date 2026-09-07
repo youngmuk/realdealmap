@@ -97,13 +97,22 @@ jobs:
       # 원천에 무슨 일이 생겼다는 뜻이므로 사람이 봐야 한다.
       - name: 결과 판정
         run: |
+          # 시험 실행은 아무것도 올리지 않는다. 로그만 보는 사람이 "배포됐다"로
+          # 오해하지 않도록 메시지 자체에 표시한다.
+          if [ -n "$DRY_RUN" ]; then
+            LABEL="[시험 실행] "; DONE="시험 실행이라 배포하지 않았습니다."
+          else
+            LABEL=""; DONE="배포 자체는 되었습니다."
+          fi
           case "$CODE" in
-            0) echo "배포 완료" ;;
-            2) echo "::error::배포가 보류되었습니다. 매니페스트는 그대로입니다 — 원천 이상을 먼저 확인하세요."
+            0) echo "${LABEL}배포 완료" ;;
+            2) echo "::error::${LABEL}배포가 보류되었습니다. 매니페스트는 그대로입니다 — 원천 이상을 먼저 확인하세요."
                exit 1 ;;
-            3) echo "::warning::수집 중 이슈가 있었습니다(정규화 실패 또는 스키마 변화). 배포 자체는 되었습니다." ;;
-            *) echo "::error::실행이 실패했습니다 (종료 코드 $CODE)"
+            3) echo "::warning::${LABEL}수집 중 이슈가 있었습니다(정규화 실패 또는 스키마 변화). ${DONE}"
+               ;;
+            *) echo "::error::${LABEL}실행이 실패했습니다 (종료 코드 $CODE)"
                exit 1 ;;
           esac
         env:
           CODE: ${{ steps.publish.outputs.code }}
+          DRY_RUN: ${{ inputs.dryRun && '1' || '' }}

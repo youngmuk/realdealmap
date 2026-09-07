@@ -126,6 +126,15 @@ export class ChunkError extends Error {
 export const PERIOD = /^\d{4}(?:0[1-9]|1[0-2])$/;
 
 /**
+ * 시군구 코드 5자리.
+ *
+ * `period`만 막고 이건 안 막고 있었다. 지금은 호출부(`resolveSggCd`)가 전부 걸러 주지만,
+ * 이 모듈은 라이브러리로 export되고 배치 경로(`buildTasks`)는 아직 연결 전이다.
+ * 호출자가 검증을 빠뜨리면 R2 오브젝트 키에 그대로 실려 나가므로 경계에서 막는다.
+ */
+export const SGG_CD = /^\d{5}$/;
+
+/**
  * 한 (시군구 · 유형 · 연월) 묶음을 청크로 만든다.
  *
  * 결정성 위협 ②: gzip 헤더. MTIME은 Node가 0으로 두지만 OS 바이트는 플랫폼값이 들어가므로
@@ -138,6 +147,7 @@ export const buildChunk = (
   period: string,
   transactions: readonly Transaction[],
 ): Chunk => {
+  if (!SGG_CD.test(sggCd)) throw new ChunkError(`시군구 코드 형식이 아님: ${sggCd}`);
   if (!PERIOD.test(period)) throw new ChunkError(`연월 형식이 아님: ${period}`);
 
   const mismatched = transactions.find((t) => t.datasetKey !== datasetKey);

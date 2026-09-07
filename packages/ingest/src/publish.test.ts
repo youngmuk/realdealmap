@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { DatasetKey } from '@realdealmap/shared';
+import type { DatasetKey, PropertyType, TradeType } from '@realdealmap/shared';
 import { describe, expect, test } from 'vitest';
 
 import { buildChunk, chunkObjectKey, type Chunk } from './chunk.js';
@@ -11,12 +11,14 @@ import { parseResponse } from './parse.js';
 import {
   checkRecordDrop,
   findObsoleteChunks,
+  findVanishedCombos,
   manifestKey,
   publishRegion,
   PublishError,
   readManifest,
   SCHEMA_VERSION,
   type Manifest,
+  type ManifestFile,
 } from './publish.js';
 import type { R2Client } from './r2.js';
 
@@ -32,10 +34,19 @@ const load = (key: string): readonly Transaction[] => {
 const chunkFor = (key: DatasetKey, sggCd = '11680', period = '202608'): Chunk =>
   buildChunk(sggCd, key, period, load(key));
 
-/** R2를 흉내내는 메모리 저장소. 실패를 원하는 키에 주입할 수 있다. */
-const fakeR2 = (options: { failOn?: string; existing?: Set<string> } = {}) => {
+/**
+ * R2를 흉내내는 메모리 저장소. 실패를 원하는 키에 주입할 수 있다.
+ *
+ * `pageSize`를 주면 `list`가 실제로 여러 페이지로 쪼개져 `nextToken`을 돌려준다.
+ * 이걸 안 하면 `findObsoleteChunks`의 `do...while(token)` 루프가 항상 1회만 돌아,
+ * 2페이지째로 넘어가는 경로가 **한 번도 실행되지 않은 채** 테스트가 통과한다.
+ */
+const fakeR2 = (
+  options: { failOn?: string; existing?: Set<string>; pageSize?: number } = {},
+) => {
   const store = new Map<string, Uint8Array>();
   const puts: string[] = [];
+  const listCalls: (string | undefined)[] = [];
   const existing = options.existing ?? new Set<string>();
 
   const client = {
@@ -50,13 +61,23 @@ const fakeR2 = (options: { failOn?: string; existing?: Set<string> } = {}) => {
     get: async (key: string) => store.get(key) ?? null,
     exists: async (key: string) => existing.has(key) || store.has(key),
     delete: async (key: string) => void store.delete(key),
-    list: async (prefix: string) => ({
-      keys: [...new Set([...store.keys(), ...existing])].filter((k) => k.startsWith(prefix)).sort(),
-      nextToken: undefined,
-    }),
+    list: async (prefix: string, token?: string) => {
+      const all = [...new Set([...store.keys(), ...existing])]
+        .filter((k) => k.startsWith(prefix))
+        .sort();
+      listCalls.push(token);
+      if (!options.pageSize) return { keys: all, nextToken: undefined };
+
+      const from = token ? Number(token) : 0;
+      const to = from + options.pageSize;
+      return {
+        keys: all.slice(from, to),
+        nextToken: to < all.length ? String(to) : undefined,
+      };
+    },
   } as unknown as R2Client;
 
-  return { client, store, puts, existing };
+  return { client, store, puts, existing, listCalls };
 };
 
 const seedManifest = (store: Map<string, Uint8Array>, sggCd: string, records: number): void => {
@@ -258,6 +279,115 @@ describe('건수 급락 게이트 (R-14)', () => {
   });
 });
 
+/** 임의의 (유형 · 월 · 건수) 조합으로 이전 매니페스트를 깐다. */
+const seedFiles = (
+  store: Map<string, Uint8Array>,
+  sggCd: string,
+  combos: readonly [PropertyType, TradeType, string, number][],
+): void => {
+  const manifest: Manifest = {
+    schemaVersion: SCHEMA_VERSION,
+    sggCd,
+    refreshedAt: '2026-09-01T00:00:00.000Z',
+    ttlSeconds: 3600,
+    files: combos.map(([propertyType, tradeType, month, records]) => ({
+      propertyType,
+      tradeType,
+      month,
+      path: `v1/data/${sggCd}/${month}/${propertyType}-${tradeType}.old0000000000000.json.gz`,
+      sha256: 'old',
+      bytes: 1,
+      records,
+    })),
+  };
+  store.set(manifestKey(sggCd), new TextEncoder().encode(JSON.stringify(manifest)));
+};
+
+const file = (
+  propertyType: PropertyType,
+  tradeType: TradeType,
+  month: string,
+  records: number,
+): ManifestFile => ({
+  propertyType,
+  tradeType,
+  month,
+  path: `v1/data/11680/${month}/${propertyType}-${tradeType}.x.json.gz`,
+  sha256: 'x',
+  bytes: 1,
+  records,
+});
+
+describe('유형 실종 게이트 (R-14)', () => {
+  test('있던 조합이 0건이 되면 잡는다', () => {
+    const prev = [file('apartment', 'sale', '202608', 100), file('land', 'sale', '202608', 88)];
+    const next = [file('apartment', 'sale', '202608', 100), file('land', 'sale', '202608', 0)];
+    expect(findVanishedCombos(prev, next)).toEqual(['land/sale 202608']);
+  });
+
+  test('조합이 통째로 빠져도 잡는다', () => {
+    const prev = [file('apartment', 'sale', '202608', 100), file('land', 'sale', '202608', 88)];
+    const next = [file('apartment', 'sale', '202608', 100)];
+    expect(findVanishedCombos(prev, next)).toEqual(['land/sale 202608']);
+  });
+
+  test('이번 배치의 월 범위 밖은 정상 소멸로 본다', () => {
+    // 최근 N개월만 올리므로 창이 밀리면 옛 달이 빠지는 것은 당연하다.
+    const prev = [file('apartment', 'sale', '202605', 100)];
+    const next = [file('apartment', 'sale', '202608', 100)];
+    expect(findVanishedCombos(prev, next)).toEqual([]);
+  });
+
+  test('원래 0건이던 조합은 실종이 아니다', () => {
+    const prev = [file('land', 'sale', '202608', 0)];
+    const next = [file('land', 'sale', '202608', 0)];
+    expect(findVanishedCombos(prev, next)).toEqual([]);
+  });
+
+  test('합계 게이트를 통과하는 실종을 잡아낸다 — 이게 이 게이트의 존재 이유다', async () => {
+    // 토지 매매만 조용히 사라진 상황. 합계 비율은 여유롭게 통과한다.
+    //
+    // 건수는 픽스처 크기에서 끌어온다. 숫자를 박아 두면 픽스처가 바뀔 때
+    // 급락 게이트가 먼저 걸려 이 테스트가 "다른 이유로" 실패한다.
+    const { client, store, puts } = fakeR2();
+    const apt = chunkFor('apartment/sale');
+    const aptCount = apt.payload.count;
+    const landCount = 5;
+
+    seedFiles(store, '11680', [
+      ['apartment', 'sale', '202608', aptCount],
+      ['land', 'sale', '202608', landCount],
+    ]);
+    const before = store.get(manifestKey('11680'));
+    const empty = buildChunk('11680', 'land/sale', '202608', []);
+
+    // 합계만 보면 토지가 통째로 빠져도 절반을 훌쩍 넘어 급락 게이트를 통과한다.
+    const ratio = aptCount / (aptCount + landCount);
+    expect(ratio).toBeGreaterThan(0.5);
+    expect(checkRecordDrop(await readManifest(client, '11680'), aptCount, 0.5)).toBeUndefined();
+
+    const result = await publishRegion(client, '11680', [apt, empty], {});
+    expect(result.hold).toEqual({ kind: 'datasetDrop', vanished: ['land/sale 202608'] });
+    expect(result.manifestReplaced).toBe(false);
+    expect(puts).toEqual([]);
+    expect(store.get(manifestKey('11680'))).toBe(before);
+  });
+
+  test('비율 0이면 이 게이트도 함께 꺼진다', async () => {
+    const { client, store } = fakeR2();
+    seedFiles(store, '11680', [['land', 'sale', '202608', 10]]);
+
+    const result = await publishRegion(
+      client,
+      '11680',
+      [buildChunk('11680', 'land/sale', '202608', [])],
+      { minRecordRatio: 0 },
+    );
+    expect(result.hold).toBeUndefined();
+    expect(result.manifestReplaced).toBe(true);
+  });
+});
+
 describe('업로드 상한', () => {
   test('상한을 넘으면 아무것도 올리지 않고 보류한다', async () => {
     const { client, puts } = fakeR2();
@@ -306,6 +436,40 @@ describe('낡은 청크 탐색', () => {
     const { client } = fakeR2({ existing: new Set([chunkObjectKey(chunk), other]) });
 
     const result = await publishRegion(client, '11680', [chunk], {});
+    expect(await findObsoleteChunks(client, '11680', result.manifest)).toEqual([]);
+  });
+
+  test('여러 페이지에 걸쳐 있어도 전부 찾는다', async () => {
+    // 페이지네이션이 실제로 두 번 이상 돌게 만든다. 이 경로가 없으면
+    // 2페이지째의 키가 통째로 누락돼도 테스트가 초록으로 통과한다.
+    const chunk = chunkFor('apartment/sale');
+    const stale = Array.from(
+      { length: 5 },
+      (_, i) => `v1/data/11680/20260${i + 1}/land-sale.${String(i).repeat(16)}.json.gz`,
+    );
+    const { client, listCalls } = fakeR2({
+      existing: new Set([chunkObjectKey(chunk), ...stale]),
+      pageSize: 2,
+    });
+
+    const result = await publishRegion(client, '11680', [chunk], {});
+    const obsolete = await findObsoleteChunks(client, '11680', result.manifest);
+
+    expect([...obsolete].sort()).toEqual([...stale].sort());
+    // 실제로 여러 페이지를 넘겼는지 — 이어받은 토큰이 있어야 한다.
+    expect(listCalls.filter((t) => t !== undefined).length).toBeGreaterThan(0);
+  });
+
+  test('매니페스트가 가리키는 키는 몇 페이지에 있든 살아남는다', async () => {
+    const chunks = (['apartment/sale', 'apartment/rent', 'land/sale'] as const).map((k) =>
+      chunkFor(k),
+    );
+    const { client } = fakeR2({
+      existing: new Set(chunks.map(chunkObjectKey)),
+      pageSize: 1,
+    });
+
+    const result = await publishRegion(client, '11680', chunks, {});
     expect(await findObsoleteChunks(client, '11680', result.manifest)).toEqual([]);
   });
 

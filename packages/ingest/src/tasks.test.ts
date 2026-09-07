@@ -2,7 +2,7 @@ import { queryableRegions } from '@realdealmap/shared';
 import { describe, expect, test } from 'vitest';
 
 import { datasetKeys } from './datasets.js';
-import { buildTasks, countByDataset, hotTasks, recentPeriods, TaskError, taskLabel } from './tasks.js';
+import { buildTasks, countByDataset, hotTasks, MAX_MONTHS, recentPeriods, TaskError, taskLabel } from './tasks.js';
 
 const AT = new Date(Date.UTC(2026, 8, 7));
 
@@ -21,6 +21,16 @@ describe('최근 연월', () => {
 
   test.each([0, -1, 1.5])('개월 수 %s는 거부한다', (count) => {
     expect(() => recentPeriods(AT, count)).toThrow(TaskError);
+  });
+
+  // 상한이 워크플로 YAML에만 있으면 이 함수를 직접 쓰는 경로에서 그대로 뚫린다.
+  // 999개월 × 9종이면 원천 API를 수천 번 두드린 뒤에야 R2 상한에 걸린다.
+  test.each([13, 100, 999])('개월 수 %s는 상한을 넘어 거부한다', (count) => {
+    expect(() => recentPeriods(AT, count)).toThrow(TaskError);
+  });
+
+  test('상한값 자체는 통과한다', () => {
+    expect(recentPeriods(AT, MAX_MONTHS)).toHaveLength(MAX_MONTHS);
   });
 });
 

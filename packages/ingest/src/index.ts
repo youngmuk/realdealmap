@@ -22,10 +22,27 @@ export {
 } from './identity.js';
 
 export type { Chunk, ChunkPayload, ChunkRecord } from './chunk.js';
-export { buildChunk, ChunkError, chunkObjectKey, isDeterministic, KEY_PREFIX, regionPrefix } from './chunk.js';
+export {
+  buildChunk,
+  ChunkError,
+  chunkObjectKey,
+  isDeterministic,
+  KEY_PREFIX,
+  PERIOD,
+  regionPrefix,
+  SGG_CD,
+} from './chunk.js';
 
 export type { BuildTasksOptions, Task } from './tasks.js';
-export { buildTasks, countByDataset, hotTasks, recentPeriods, TaskError, taskLabel } from './tasks.js';
+export {
+  buildTasks,
+  countByDataset,
+  hotTasks,
+  MAX_MONTHS,
+  recentPeriods,
+  TaskError,
+  taskLabel,
+} from './tasks.js';
 
 export type { ClientOptions, FetchAllResult, PageResult, RunReport, TaskFailure } from './client.js';
 export {
@@ -43,6 +60,7 @@ export type { HoldReason, Manifest, ManifestFile, PublishOptions, PublishResult 
 export {
   checkRecordDrop,
   findObsoleteChunks,
+  findVanishedCombos,
   manifestKey,
   publishRegion,
   PublishError,

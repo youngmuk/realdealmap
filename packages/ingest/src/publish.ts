@@ -49,6 +49,14 @@ export class PublishError extends Error {
 export type HoldReason =
   /** 직전 대비 건수가 급락했다. 원천의 조용한 0건일 수 있다 (R-14) */
   | { readonly kind: 'recordDrop'; readonly before: number; readonly after: number; readonly ratio: number }
+  /**
+   * 이전에 있던 (유형 · 월) 조합이 통째로 사라졌다.
+   *
+   * 합계 게이트만으로는 못 잡는 자리다. 9종 중 하나만 조용히 0건이 되면
+   * 나머지 8종이 합계를 떠받쳐 그대로 통과한다 — 원천이 오류 대신 0건을 주는
+   * R-14에서 가장 흔한 모습이 바로 이것이다.
+   */
+  | { readonly kind: 'datasetDrop'; readonly vanished: readonly string[] }
   /** 올려야 할 청크 수가 상한을 넘었다. 폭주 방지 */
   | { readonly kind: 'uploadCap'; readonly needed: number; readonly cap: number };
 
@@ -138,6 +146,50 @@ export const checkRecordDrop = (
   return { kind: 'recordDrop', before, after: nextTotal, ratio };
 };
 
+/** 매니페스트 파일을 (유형 · 월)로 식별한다. 사람이 읽는 보류 사유에 그대로 쓴다. */
+const comboKey = (f: ManifestFile): string =>
+  `${f.propertyType}/${f.tradeType} ${f.month}`;
+
+/**
+ * 사라진 (유형 · 월) 조합을 찾는다.
+ *
+ * 합계 게이트는 **지역 전체가 초토화됐을 때만** 걸린다. 강남구 3개월 5,455건에서
+ * 토지 매매가 3개월치 88건 통째로 빠져도 비율은 98.4%라 그냥 통과한다.
+ * 원천이 오류 대신 0건을 주는 이상 이건 못 본 채로 배포되고, 그 달 그 유형은
+ * 매니페스트에서 조용히 사라진다.
+ *
+ * 그래서 조합 단위로 한 번 더 본다. 실거래는 사라지지 않는다 — 해제도 삭제가 아니라
+ * `cancelled` 상태로 남으므로, 있던 조합이 0건이 되는 것은 정상 경로에 없다.
+ *
+ * 다만 **이번 배치의 월 범위 밖은 제외한다.** 최근 N개월만 올리므로 창이 밀리면
+ * 옛 달이 목록에서 빠지는 것은 정상이다. 그것까지 잡으면 매번 보류된다.
+ */
+export const findVanishedCombos = (
+  previous: readonly ManifestFile[],
+  next: readonly ManifestFile[],
+): readonly string[] => {
+  const months = new Set(next.map((f) => f.month));
+  const records = new Map(next.map((f) => [comboKey(f), f.records]));
+
+  const vanished = previous
+    .filter((f) => f.records > 0 && months.has(f.month))
+    .filter((f) => (records.get(comboKey(f)) ?? 0) === 0)
+    .map(comboKey);
+
+  return [...new Set(vanished)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+};
+
+/** 조합 실종을 보류 사유로 바꾼다. 사라진 게 없으면 undefined. */
+const vanishHold = (
+  previous: Manifest | undefined,
+  next: readonly ManifestFile[],
+  minRatio: number,
+): HoldReason | undefined => {
+  if (minRatio <= 0 || !previous) return undefined;
+  const vanished = findVanishedCombos(previous.files, next);
+  return vanished.length > 0 ? { kind: 'datasetDrop', vanished } : undefined;
+};
+
 /**
  * 한 지역의 청크를 올리고 매니페스트를 교체한다.
  *
@@ -174,7 +226,12 @@ export const publishRegion = async (
   };
 
   const previous = await readManifest(r2, sggCd);
-  const drop = checkRecordDrop(previous, totalRecords, minRecordRatio);
+  // 게이트 둘을 순서대로 본다. 합계는 지역 전체의 붕괴를, 조합은 한 유형의 실종을 잡는다.
+  // `minRecordRatio <= 0`은 둘 다 끄는 스위치다 — R-14 방어를 통째로 내리는 것이므로
+  // 유형을 정말로 수집 중단할 때만 쓴다.
+  const drop =
+    checkRecordDrop(previous, totalRecords, minRecordRatio) ??
+    vanishHold(previous, files, minRecordRatio);
   if (drop) {
     // 보류다. 청크도 올리지 않는다 — 어차피 매니페스트를 바꾸지 않으면 아무도 안 본다.
     return {
