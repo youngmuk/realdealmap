@@ -34,7 +34,7 @@ import {
   writeDictionary,
 } from '../dist/index.js';
 
-import { loadEnv, requireEnv } from './env.mjs';
+import { loadEnv } from './env.mjs';
 
 const EXIT = { ok: 0, error: 1, quota: 2 };
 
@@ -95,10 +95,16 @@ const main = async () => {
     return;
   }
 
-  // VWorld 키는 **있으면 쓴다.** 없다고 멈추지 않는다 — 카카오만으로도 돌아가야
-  // 하고, 예비 경로가 없다는 이유로 본 경로를 막는 것은 앞뒤가 바뀐 일이다.
+  // **어느 쪽도 필수가 아니다. 하나라도 있으면 돈다.**
+  //
+  // 예전에는 카카오 키를 requireEnv로 받았다. 그래서 GitHub에 카카오 시크릿이
+  // 없던 동안 예약 작업이 지역마다 예외로 죽었고, 루프는 그것을 "종료 코드 1"
+  // 경고 한 줄로 넘기며 계속 돌았다 — 잡은 초록으로 끝나고 좌표는 한 건도 안 늘었다.
+  // 이 앱이 거듭 당한 "오류 없이 아무 일도 안 일어나는" 실패다.
+  //
+  // 둘 다 없으면 Geocoder가 만들어지면서 던진다. 그때는 조용히 넘어가면 안 된다.
   const geocoder = new Geocoder({
-    apiKey: requireEnv('KAKAO_REST_API_KEY'),
+    ...(process.env.KAKAO_REST_API_KEY ? { apiKey: process.env.KAKAO_REST_API_KEY } : {}),
     vworldKey: process.env.VWORLD_KEY ?? '',
     regionName,
     budget,

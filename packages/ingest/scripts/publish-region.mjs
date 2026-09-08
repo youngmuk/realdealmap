@@ -77,8 +77,9 @@ const regionNameOf = (sggCd) => {
  */
 const topUpDictionary = async (r2, sggCd, dictionary, transactions, budget) => {
   const apiKey = process.env.KAKAO_REST_API_KEY;
-  if (!apiKey) {
-    console.log('  건너뜀 — KAKAO_REST_API_KEY가 없다. 좌표 없이 굽는다.');
+  const vworldKey = process.env.VWORLD_KEY;
+  if (!apiKey && !vworldKey) {
+    console.log('  건너뜀 — 지오코더 키가 하나도 없다. 좌표 없이 굽는다.');
     return dictionary;
   }
 
@@ -91,8 +92,8 @@ const topUpDictionary = async (r2, sggCd, dictionary, transactions, budget) => {
 
   // VWorld 키는 있으면 쓴다. 카카오가 막힌 뒤를 이어받는다.
   const geocoder = new Geocoder({
-    apiKey,
-    vworldKey: process.env.VWORLD_KEY ?? '',
+    ...(apiKey ? { apiKey } : {}),
+    vworldKey: vworldKey ?? '',
     regionName: regionNameOf(sggCd),
     budget,
     today,
