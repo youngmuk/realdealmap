@@ -58,7 +58,7 @@ jobs:
             echo "| --- | --- | --- | --- |"
           } >> /tmp/metrics.md
 
-          for wf in refresh-region.yml backfill.yml geocode-queue.yml; do
+          for wf in refresh-region.yml backfill.yml; do
             # per_page 100이면 하루 4회 도는 워크플로의 7일치가 들어간다.
             runs=$(curl -sS -H "authorization: Bearer $GH_TOKEN" \
               -H 'accept: application/vnd.github+json' \
