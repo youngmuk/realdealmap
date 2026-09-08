@@ -98,23 +98,55 @@ class CameraState {
   final double zoom;
 }
 
+/// 마지막으로 알던 지역 **이름**.
+///
+/// 머리말은 지역 색인에서 이름을 얻는데, 색인은 네트워크로 온다. 앱을 켠
+/// 직후에는 아직 없어서 머리말이 시군구 코드로 떨어졌다 &mdash; 실기기에서
+/// `11230`이 그대로 보였다. 5자리 숫자는 내부 값이고 사용자에게 아무 뜻이
+/// 없다. 그래서 이름을 코드와 함께 남겨 두고 색인이 오기 전까지 그것을 쓴다.
+class LastRegionName extends Notifier<String?> {
+  static const key = 'region.selected.name';
+
+  @override
+  String? build() => ref.read(prefsProvider).getString(key);
+
+  void set(String? name) {
+    if (name == state) return;
+    state = name;
+    final prefs = ref.read(prefsProvider);
+    unawaited(name == null ? prefs.remove(key) : prefs.setString(key, name));
+  }
+}
+
+final lastRegionNameProvider = NotifierProvider<LastRegionName, String?>(
+  LastRegionName.new,
+);
+
 class SelectedRegion extends Notifier<String?> {
   static const _key = 'region.selected';
 
   @override
   String? build() => ref.read(prefsProvider).getString(_key);
 
-  /// 지역을 바꾼다. **같은 지역이면 아무것도 하지 않는다** —
-  /// 지도를 조금 움직일 때마다 같은 값을 다시 넣으면 화면이 계속 다시 그려진다.
-  void select(String? sggCd) {
-    if (sggCd == state) return;
-    state = sggCd;
-    final prefs = ref.read(prefsProvider);
-    // 기다리지 않는다. 저장이 끝나기를 기다리면 지역 전환이 디스크 쓰기만큼
-    // 느려지는데, 화면에 필요한 값은 이미 state에 들어가 있다.
-    unawaited(
-      sggCd == null ? prefs.remove(_key) : prefs.setString(_key, sggCd),
-    );
+  /// 지역을 바꾼다.
+  ///
+  /// [name]을 아는 자리에서는 같이 넘긴다. 모르면 넘기지 않는다 &mdash; 그때는
+  /// **옛 이름을 지운다.** 남겨 두면 다른 지역 이름이 붙은 채로 남는데,
+  /// 그것은 코드를 보여주는 것보다 나쁘다.
+  ///
+  /// 지역이 그대로여도 이름만 뒤늦게 알게 될 수 있다(색인이 늦게 도착하는 경우).
+  /// 그 경우까지 막지 않으려고 이름은 코드와 따로 본다.
+  void select(String? sggCd, {String? name}) {
+    if (sggCd != state) {
+      state = sggCd;
+      final prefs = ref.read(prefsProvider);
+      // 기다리지 않는다. 저장이 끝나기를 기다리면 지역 전환이 디스크 쓰기만큼
+      // 느려지는데, 화면에 필요한 값은 이미 state에 들어가 있다.
+      unawaited(
+        sggCd == null ? prefs.remove(_key) : prefs.setString(_key, sggCd),
+      );
+    }
+    ref.read(lastRegionNameProvider.notifier).set(sggCd == null ? null : name);
   }
 }
 

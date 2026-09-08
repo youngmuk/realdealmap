@@ -301,7 +301,9 @@ class _MapPageState extends ConsumerState<MapPage> {
     if (region == null) return;
     if (region.sggCd == ref.read(selectedRegionProvider)) return;
 
-    ref.read(selectedRegionProvider.notifier).select(region.sggCd);
+    ref
+        .read(selectedRegionProvider.notifier)
+        .select(region.sggCd, name: region.displayName);
     unawaited(ref.read(syncProvider.notifier).syncRegion(region.sggCd));
   }
 

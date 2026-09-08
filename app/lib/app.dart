@@ -89,6 +89,19 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     if (saved != null) {
       await ref.read(syncProvider.notifier).syncRegion(saved);
       await ref.read(regionIndexProvider.notifier).reload();
+      // 색인이 왔으니 이제 이 지역의 이름을 안다. 남겨 두면 **다음에 앱을 켤 때
+      // 색인을 기다리지 않고** 머리말이 제 이름으로 뜬다.
+      //
+      // 여기서 하지 않으면 이름이 영영 안 남는다 — 이 갈래는 지역이 이미
+      // 정해져 있어 select()를 부르지 않기 때문이다. 실기기에서 머리말이
+      // 계속 "지역 확인 중"에 머무는 것으로 드러났다.
+      if (!mounted) return;
+      final name = ref
+          .read(regionIndexProvider)
+          .value
+          ?.byCode(saved)
+          ?.displayName;
+      if (name != null) ref.read(lastRegionNameProvider.notifier).set(name);
       return;
     }
 
@@ -123,7 +136,9 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final region = index?.at(point) ?? index?.nearest(point);
     if (region == null || !mounted) return;
 
-    ref.read(selectedRegionProvider.notifier).select(region.sggCd);
+    ref
+        .read(selectedRegionProvider.notifier)
+        .select(region.sggCd, name: region.displayName);
     // 사용자가 고른 것과 같은 자격이다. 지도가 이 신호를 보고 그쪽으로 옮긴다.
     ref.read(regionFocusProvider.notifier).request();
     unawaited(ref.read(syncProvider.notifier).syncRegion(region.sggCd));
@@ -151,7 +166,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final picked = await RegionPicker.show(context);
     if (picked == null || !mounted) return;
 
-    ref.read(selectedRegionProvider.notifier).select(picked);
+    // 고른 지역의 이름을 여기서 알고 있다. 같이 남겨 두면 다음에 앱을 켤 때
+    // 색인이 오기 전에도 머리말이 제 이름으로 뜬다.
+    final name = ref.read(regionIndexProvider).value?.byCode(picked)?.displayName;
+    ref.read(selectedRegionProvider.notifier).select(picked, name: name);
     ref.read(regionFocusProvider.notifier).request();
     unawaited(ref.read(syncProvider.notifier).syncRegion(picked));
   }
@@ -184,7 +202,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             children: [
               Flexible(
                 child: Text(
-                  region?.displayName ?? (sggCd ?? '지역 선택'),
+                  // 색인이 오기 전에는 마지막으로 알던 이름을 쓴다.
+                  // **시군구 코드는 보여주지 않는다** — 사용자에게 아무 뜻이 없다.
+                  region?.displayName ??
+                      ref.watch(lastRegionNameProvider) ??
+                      (sggCd == null ? '지역 선택' : '지역 확인 중'),
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 18,
