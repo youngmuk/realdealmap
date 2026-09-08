@@ -1,0 +1,192 @@
+name: resync-cold
+
+# 오래 손대지 않은 지역을 다시 맞춘다 (T4.7).
+#
+# 갱신은 사용자가 지역을 열어야 걸린다. 그래서 **아무도 안 여는 지역은 영영
+# 낡은 채로 남는다.** 전남 어느 군을 반 년 만에 처음 여는 사람이 반 년 전
+# 데이터를 보게 되는데, 화면에 기준 시각이 뜨므로 거짓말은 아니지만 쓸모가 없다.
+#
+# 국토부는 지난 계약도 뒤늦게 신고되고 해제·정정이 붙는다. 한 번 받아 두면
+# 끝나는 자료가 아니다.
+#
+# **전부를 한 번에 돌지 않는다.** 매 실행이 "가장 오래된 N개"만 처리한다.
+# 256개를 한 실행에 넣으면 GitHub 잡 상한(6시간)을 넘기고, 무엇보다 한 실행이
+# 쓰는 호출 수가 입력으로 묶여 있어야 쿼터를 넘길 수가 없다.
+#
+# 비용: 지역당 (3개월 × 9종) = 27회. 40개면 국토부 API별 120회/일이다
+# — 일 한도 10,000의 1.2%다. 전국 256개를 도는 데 약 7일이 걸린다.
+
+on:
+  # 매일 새벽. 예열(6시간마다)과 시각을 어긋나게 둬서 둘이 겹치지 않게 한다.
+  schedule:
+    - cron: '40 18 * * *'
+
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: '재동기할 지역 수 (1~60). 지역당 국토부 호출은 27회다'
+        required: false
+        default: '40'
+        type: string
+      months:
+        description: '갱신할 개월 수'
+        required: false
+        default: '3'
+        type: string
+
+concurrency:
+  group: resync-cold
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  resync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+
+    steps:
+      # 액션은 커밋 SHA로 고정한다. 이 잡이 국토부 인증키와 R2 자격증명을 쥔다.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: 빌드
+        run: npm run typecheck
+
+      - name: 입력 검증
+        run: |
+          if ! [[ "$LIMIT" =~ ^([1-9]|[1-5][0-9]|60)$ ]]; then
+            echo "::error::지역 수가 1~60이 아닙니다: $LIMIT"
+            exit 1
+          fi
+          if ! [[ "$MONTHS" =~ ^([1-9]|1[0-2])$ ]]; then
+            echo "::error::개월 수가 1~12가 아닙니다: $MONTHS"
+            exit 1
+          fi
+        env:
+          LIMIT: ${{ inputs.limit || '40' }}
+          MONTHS: ${{ inputs.months || '3' }}
+
+      - name: 대상 고르기
+        id: pick
+        run: |
+          node packages/ingest/scripts/pick-regions.mjs \
+            --mode=cold "--limit=$LIMIT" > /tmp/cold.txt
+          count=$(wc -l < /tmp/cold.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+        env:
+          LIMIT: ${{ inputs.limit || '40' }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+      - name: 재동기
+        if: steps.pick.outputs.count != '0'
+        run: |
+          ok=0; held=0; failed=0
+          while read -r code; do
+            [ -n "$code" ] || continue
+            echo "::group::$code"
+            set +e
+            GITHUB_STEP_SUMMARY= node packages/ingest/scripts/publish-region.mjs \
+              "$code" "--months=$MONTHS" --geocode=0
+            rc=$?
+            set -e
+            echo "::endgroup::"
+            case "$rc" in
+              0|3) ok=$((ok+1)) ;;
+              2)   held=$((held+1)); echo "::warning::$code 배포 보류" ;;
+              *)   failed=$((failed+1)); echo "::warning::$code 실패 (종료 코드 $rc)" ;;
+            esac
+          done < /tmp/cold.txt
+
+          {
+            echo "### 재동기 결과"
+            echo ""
+            echo "| 항목 | 값 |"
+            echo "| --- | --- |"
+            echo "| 대상 | ${{ steps.pick.outputs.count }} |"
+            echo "| 완료 | $ok |"
+            echo "| 보류 | $held |"
+            echo "| 실패 | $failed |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$ok" -eq 0 ] && [ "$failed" -gt 0 ]; then
+            echo "::error::한 지역도 재동기하지 못했습니다"
+            exit 1
+          fi
+        env:
+          MONTHS: ${{ inputs.months || '3' }}
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+      - name: 오래된 지역이 없으면 알린다
+        if: steps.pick.outputs.count == '0'
+        run: |
+          echo "모든 지역이 하루 안에 갱신돼 있습니다. 재동기할 것이 없습니다." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+  # ------------------------------------------------------------------
+  # GitHub은 **공개 저장소의 예약 워크플로를 60일 무활동이면 자동으로 끈다.**
+  #
+  # 그러면 이 워크플로만 멈추는 것이 아니라 적재·좌표 채우기·지표까지 전부
+  # 멈춘다. 앱은 계속 돌지만 데이터가 그날부터 낡기 시작하고, 아무 오류도
+  # 나지 않는다 — 이 프로젝트가 반복해서 당한 "조용한 실패"의 전형이다.
+  #
+  # 그래서 조용해지기 전에 저장소를 한 번 건드린다.
+  #
+  # **자격증명을 쥐지 않는 별도 잡으로 뒀다.** 위 잡은 국토부 키와 R2
+  # 자격증명을 쥐고 있고, 거기에 쓰기 권한까지 더하면 사고 한 번의 대가가
+  # 너무 커진다. 이 잡은 쓰기 권한만 갖고 비밀값은 하나도 안 받는다.
+  #
+  # GITHUB_TOKEN으로 만든 커밋은 다른 워크플로를 깨우지 않는다(재귀 방지).
+  # 그 커밋이 60일 시계를 실제로 되돌리는지까지는 확인하지 못했다 — 확인할
+  # 방법이 60일을 기다리는 것뿐이다. **그래서 이것만 믿지 않는다:**
+  # GitHub은 끄기 전에 저장소 소유자에게 메일을 보내고, 소유자는 Actions
+  # 탭에서 한 번 눌러 다시 켤 수 있다. 이 잡은 그 메일을 안 받게 하려는
+  # 보조 장치이지 유일한 방어가 아니다.
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: 조용한 지 오래됐으면 저장소를 건드린다
+        run: |
+          last=$(git log -1 --format=%ct)
+          now=$(date +%s)
+          days=$(( (now - last) / 86400 ))
+          echo "마지막 커밋으로부터 ${days}일"
+
+          # 45일에서 손을 쓴다. 60일에 붙여 두면 실행이 한 번만 어긋나도 늦는다.
+          if [ "$days" -lt 45 ]; then
+            echo "아직 조용하지 않다. 아무것도 하지 않는다." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > .github/last-activity
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/last-activity
+          git commit -m 'chore: 예약 작업이 꺼지지 않게 저장소를 건드린다 [skip ci]'
+          git push
+          {
+            echo "### 저장소를 건드렸다"
+            echo ""
+            echo "마지막 커밋으로부터 ${days}일이 지나 예약 작업이 꺼질 위험이 있었다."
+          } >> "$GITHUB_STEP_SUMMARY"

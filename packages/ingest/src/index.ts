@@ -105,6 +105,12 @@ export type { GeocodeOutcome, GeocoderOptions, GeocodeResult } from './geocoder.
 
 export type { BoundingBox, LatLng, RegionIndex, RegionSummary } from './region-index.js';
 export {
+  COLD_MIN_AGE_HOURS,
+  HOT_MIN_AGE_HOURS,
+  pickCold,
+  pickHot,
+} from './region-pick.js';
+export {
   emptyIndex,
   indexObjectKey,
   INDEX_VERSION,

@@ -1,0 +1,144 @@
+name: prewarm-hot
+
+# 사람이 많이 볼 지역을 미리 갱신해 둔다 (T4.7).
+#
+# 갱신은 원래 **사용자가 지역을 열 때** 걸린다(앱 → Worker → repository_dispatch).
+# 그 구조에서는 그 지역을 그날 처음 연 사람이 갱신을 기다린다. 데이터가 낡은
+# 것을 보거나(TTL 초과) 갱신이 끝나기를 기다려야 한다.
+#
+# **어느 지역이 인기인지 우리는 모른다.** 사용량을 서버에 남기지 않기로 했고
+# (개인정보처리방침에 그렇게 적었다) 그 결정을 지표를 얻자고 뒤집지 않는다.
+# 대신 거래 건수를 대리 지표로 쓴다 — 거래가 많은 곳이 사람이 많이 사는 곳이다.
+# 정확하지 않지만 손으로 적어 둔 목록보다 낫고, 지역 사정이 바뀌면 따라간다.
+#
+# 비용: 지역당 (3개월 × 9종) = 27회. 24개면 국토부 API별 72회/실행이고
+# 하루 4번이면 API별 288회다 — 일 한도 10,000의 3%다.
+
+on:
+  # 6시간마다. 앱 TTL이 1시간이라 더 자주 돌 이유가 없고, 더 뜸하면
+  # 예열의 뜻이 없어진다.
+  schedule:
+    - cron: '10 */6 * * *'
+
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: '예열할 지역 수 (1~60). 지역당 국토부 호출은 27회다'
+        required: false
+        default: '24'
+        type: string
+      months:
+        description: '갱신할 개월 수'
+        required: false
+        default: '3'
+        type: string
+
+# 예열끼리 겹치면 같은 지역을 두 번 수집해 쿼터만 태운다.
+concurrency:
+  group: prewarm-hot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prewarm:
+    runs-on: ubuntu-latest
+    # 지역당 2~3분 × 24개. 6시간 상한에 여유를 둔다.
+    timeout-minutes: 120
+
+    steps:
+      # 액션은 커밋 SHA로 고정한다. 이 잡이 국토부 인증키와 R2 자격증명을 쥔다.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: 빌드
+        run: npm run typecheck
+
+      - name: 입력 검증
+        run: |
+          if ! [[ "$LIMIT" =~ ^([1-9]|[1-5][0-9]|60)$ ]]; then
+            echo "::error::지역 수가 1~60이 아닙니다: $LIMIT"
+            exit 1
+          fi
+          if ! [[ "$MONTHS" =~ ^([1-9]|1[0-2])$ ]]; then
+            echo "::error::개월 수가 1~12가 아닙니다: $MONTHS"
+            exit 1
+          fi
+        env:
+          LIMIT: ${{ inputs.limit || '24' }}
+          MONTHS: ${{ inputs.months || '3' }}
+
+      - name: 대상 고르기
+        id: pick
+        run: |
+          node packages/ingest/scripts/pick-regions.mjs \
+            --mode=hot "--limit=$LIMIT" > /tmp/hot.txt
+          count=$(wc -l < /tmp/hot.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+        env:
+          LIMIT: ${{ inputs.limit || '24' }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+      - name: 예열
+        if: steps.pick.outputs.count != '0'
+        run: |
+          ok=0; held=0; failed=0
+          while read -r code; do
+            [ -n "$code" ] || continue
+            echo "::group::$code"
+            set +e
+            # 지역마다 표를 붙이면 요약 상한(1 MiB)을 넘긴다. 합계만 아래에서 적는다.
+            GITHUB_STEP_SUMMARY= node packages/ingest/scripts/publish-region.mjs \
+              "$code" "--months=$MONTHS" --geocode=0
+            rc=$?
+            set -e
+            echo "::endgroup::"
+            case "$rc" in
+              0|3) ok=$((ok+1)) ;;
+              # 한 지역의 사정으로 나머지를 멈추지 않는다. 다음 실행이 다시 본다.
+              2)   held=$((held+1)); echo "::warning::$code 배포 보류" ;;
+              *)   failed=$((failed+1)); echo "::warning::$code 실패 (종료 코드 $rc)" ;;
+            esac
+          done < /tmp/hot.txt
+
+          {
+            echo "### 예열 결과"
+            echo ""
+            echo "| 항목 | 값 |"
+            echo "| --- | --- |"
+            echo "| 대상 | ${{ steps.pick.outputs.count }} |"
+            echo "| 완료 | $ok |"
+            echo "| 보류 | $held |"
+            echo "| 실패 | $failed |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # 예열은 있으면 좋은 것이지 없으면 앱이 멈추는 것이 아니다. 다만
+          # 전부 실패했다면 한 지역의 사정이 아니라 구조적 고장이다.
+          if [ "$ok" -eq 0 ] && [ "$failed" -gt 0 ]; then
+            echo "::error::한 지역도 예열하지 못했습니다"
+            exit 1
+          fi
+        env:
+          MONTHS: ${{ inputs.months || '3' }}
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+      - name: 데울 것이 없으면 알린다
+        if: steps.pick.outputs.count == '0'
+        run: |
+          echo "인기 지역이 모두 최근에 갱신돼 있습니다. 예열할 것이 없습니다." \
+            >> "$GITHUB_STEP_SUMMARY"
