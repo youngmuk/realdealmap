@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./dist/index.js",
   "dependencies": {
-    "@realdealmap/shared": "*"
+    "@realdealmap/shared": "*",
+    "proj4": "^2.22.0"
   },
   "types": "./dist/index.d.ts",
   "exports": {

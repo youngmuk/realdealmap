@@ -119,3 +119,5 @@ export {
   withRegion,
   writeIndex,
 } from './region-index.js';
+
+export { UtmkError, utmkToWgs84, wgs84ToUtmk } from './utmk.js';
