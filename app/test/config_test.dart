@@ -13,11 +13,8 @@ import 'package:realdealmap/state/app_state.dart';
 /// 릴리스 APK는 **멀쩡히 실행됐다** — 지도는 OSM 폴백으로 그려지고 데이터만
 /// 비어서 "아직 안 받았나 보다"처럼 보였다. 지역 목록을 열어 보고서야 알았다.
 /// 스토어에 올린 뒤에 알았다면 되돌리는 비용이 전혀 달랐다.
-AppConfig config({String style = ''}) => AppConfig(
-  dataBaseUrl: '',
-  workerBaseUrl: '',
-  mapStyle: style,
-);
+AppConfig config({String style = ''}) =>
+    AppConfig(dataBaseUrl: '', workerBaseUrl: '', mapStyle: style);
 
 void main() {
   const good = AppConfig(
@@ -79,7 +76,7 @@ void main() {
 
     // 기능은 멀쩡해 보이지만 남의 서버를 이용정책 밖으로 쓰는 상태다.
     // 화면만 봐서는 절대 드러나지 않는다.
-    test('VWorld 키가 없으면 OSM 폴백임을 잡아낸다', () {
+    test('MAP_STYLE이 없으면 OSM 폴백임을 잡아낸다', () {
       const c = AppConfig(
         dataBaseUrl: 'https://example.invalid',
         workerBaseUrl: 'https://worker.invalid',
@@ -90,7 +87,7 @@ void main() {
       expect(c.resolvedMapStyle, contains('openstreetmap.org'));
     });
 
-    test('스타일을 직접 주면 키가 없어도 폴백이 아니다', () {
+    test('스타일을 주면 폴백이 아니다', () {
       const c = AppConfig(
         dataBaseUrl: 'https://example.invalid',
         workerBaseUrl: 'https://worker.invalid',
@@ -136,11 +133,7 @@ void main() {
     testWidgets('빠진 것이 있으면 그것을 적어 보인다', (tester) async {
       await pumpWarning(
         tester,
-        const AppConfig(
-          dataBaseUrl: '',
-          workerBaseUrl: '',
-          mapStyle: '',
-        ),
+        const AppConfig(dataBaseUrl: '', workerBaseUrl: '', mapStyle: ''),
       );
 
       // 사유마다 한 줄이다. 뭉뚱그리면 무엇을 고쳐야 하는지 하나만 읽힌다
@@ -176,11 +169,7 @@ void main() {
         ProviderScope(
           overrides: [
             configProvider.overrideWithValue(
-              const AppConfig(
-                dataBaseUrl: '',
-                workerBaseUrl: '',
-                mapStyle: '',
-              ),
+              const AppConfig(dataBaseUrl: '', workerBaseUrl: '', mapStyle: ''),
             ),
           ],
           child: MediaQuery(
