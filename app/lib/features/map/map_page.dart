@@ -313,7 +313,8 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// 그 자리로 지역을 판정하면 **사용자가 고른 지역을 조용히 되돌린다.**
   /// 사용자가 직접 밀어 움직였다면 그때부터는 다시 그의 뜻이다.
   bool _cameraSpeaksForUser(ml.CameraPosition camera) {
-    if (_noCenterFor == null || _noCenterFor != ref.read(selectedRegionProvider)) {
+    if (_noCenterFor == null ||
+        _noCenterFor != ref.read(selectedRegionProvider)) {
       return true;
     }
     final anchor = _noCenterAt;
@@ -694,10 +695,12 @@ Map<String, dynamic> _toCollection(List<MapFeature> features) => {
 };
 
 /// 범례. 색이 뜻을 가지므로 뜻을 밝히지 않으면 장식이 된다.
-/// 좌표가 아직 없는 지역이라고 말한다.
+/// 좌표가 없는 지역이라고 말한다.
 ///
-/// 적재 직후에는 흔한 상태다 — 거래는 다 받았는데 주소를 좌표로 바꾸는 일이
-/// 아직 안 끝났다. 그 사정을 모르는 사용자에게는 "지도가 고장났다"로 보인다.
+/// **지금은 모든 지역이 이 상태다.** 주소를 좌표로 바꿔 주던 두 서비스(카카오·VWorld)가
+/// 응답의 저장을 금지해서 그 경로를 통째로 걷어냈다. 저장이 허용된 원천(도로명주소)으로
+/// 갈아 끼우기 전까지 지도에는 찍을 것이 없다. 그 사정을 모르는 사용자에게는
+/// "지도가 고장났다"로 보이므로 화면에서 말한다 — 거래 자체는 다 있고 목록에서 볼 수 있다.
 class _NoCenterNotice extends StatelessWidget {
   const _NoCenterNotice({required this.name, required this.onList});
   final String name;
@@ -722,8 +725,8 @@ class _NoCenterNotice extends StatelessWidget {
           ),
           const SizedBox(height: 3),
           const Text(
-            '거래는 모두 받았습니다. 주소를 좌표로 바꾸는 일이 끝나면 지도에도 '
-            '나옵니다. 그때까지는 목록에서 볼 수 있습니다.',
+            '거래는 모두 받았습니다. 지도에 찍으려면 위치 정보가 더 필요한데 '
+            '아직 준비되지 않았습니다. 그때까지는 목록에서 볼 수 있습니다.',
             style: TextStyle(fontSize: 12, height: 1.45, color: Palette.ink2),
           ),
           if (onList != null) ...[
@@ -785,6 +788,8 @@ class _Legend extends StatelessWidget {
             truncated
                 ? '화면 안 ${formatCount(total)}건 중 ${formatCount(drawn)}건만 표시 '
                       '· 확대하면 전부 보입니다'
+                : drawn == 0
+                ? '화면 안 0건'
                 : '화면 안 ${formatCount(drawn)}건 · 옅은 원은 법정동 근사',
             style: TextStyle(
               fontSize: 10.5,
