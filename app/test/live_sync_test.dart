@@ -89,7 +89,7 @@ void main() {
 
     final box = region.bbox!;
     final pins = await db.pinsInBounds(
-    sggCd: null, // 지역을 가리지 않는다
+      sggCd: null, // 지역을 가리지 않는다
       south: box.south,
       north: box.north,
       west: box.west,

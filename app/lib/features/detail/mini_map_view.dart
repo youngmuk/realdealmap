@@ -74,7 +74,10 @@ class MiniMapView extends ConsumerWidget {
                     ),
                   Positioned(
                     left: layout.markerLeft + dx - _markerSize / 2,
-                    top: layout.markerTop + dy - (approximate ? _markerSize / 2 : _markerSize),
+                    top:
+                        layout.markerTop +
+                        dy -
+                        (approximate ? _markerSize / 2 : _markerSize),
                     width: _markerSize,
                     height: _markerSize,
                     child: _Marker(approximate: approximate),

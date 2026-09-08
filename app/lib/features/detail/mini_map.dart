@@ -74,8 +74,7 @@ TilePoint projectToTile({
   final clamped = lat.clamp(-85.05112878, 85.05112878);
   final rad = clamped * math.pi / 180;
   final x = (lng + 180) / 360 * n;
-  final y =
-      (1 - math.log(math.tan(rad) + 1 / math.cos(rad)) / math.pi) / 2 * n;
+  final y = (1 - math.log(math.tan(rad) + 1 / math.cos(rad)) / math.pi) / 2 * n;
   return TilePoint(x, y);
 }
 

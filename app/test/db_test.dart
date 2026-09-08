@@ -120,7 +120,7 @@ void main() {
       await seed(30);
 
       final pins = await db.pinsInBounds(
-    sggCd: null, // 지역을 가리지 않는다
+        sggCd: null, // 지역을 가리지 않는다
         south: 37,
         north: 38,
         west: 126,
@@ -128,7 +128,7 @@ void main() {
         limit: 10,
       );
       final total = await db.countPinsInBounds(
-    sggCd: null, // 지역을 가리지 않는다
+        sggCd: null, // 지역을 가리지 않는다
         south: 37,
         north: 38,
         west: 126,
@@ -149,7 +149,7 @@ void main() {
         (cancelled: false, months: {'202606'}),
       ]) {
         final pins = await db.pinsInBounds(
-    sggCd: null, // 지역을 가리지 않는다
+          sggCd: null, // 지역을 가리지 않는다
           south: 37,
           north: 38,
           west: 126,
@@ -158,7 +158,7 @@ void main() {
           months: args.months,
         );
         final total = await db.countPinsInBounds(
-    sggCd: null, // 지역을 가리지 않는다
+          sggCd: null, // 지역을 가리지 않는다
           south: 37,
           north: 38,
           west: 126,
@@ -198,7 +198,7 @@ void main() {
           .insert(tx('b', lat: 37.5, lng: 127.0, period: '202606'));
 
       final pins = await db.pinsInBounds(
-    sggCd: null, // 지역을 가리지 않는다
+        sggCd: null, // 지역을 가리지 않는다
         south: 37.4,
         north: 37.6,
         west: 126.9,
@@ -231,7 +231,7 @@ void main() {
           );
 
       final cheap = await db.pinsInBounds(
-    sggCd: null, // 지역을 가리지 않는다
+        sggCd: null, // 지역을 가리지 않는다
         south: 37.4,
         north: 37.6,
         west: 126.9,

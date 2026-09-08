@@ -184,7 +184,10 @@ void main() {
 
         // 아파트만 보고 있으면 토지가 없어도 알릴 일이 아니다
         expect(
-          missingLabels(const TxFilter(datasetKeys: {'apartment/sale'}), covered),
+          missingLabels(
+            const TxFilter(datasetKeys: {'apartment/sale'}),
+            covered,
+          ),
           isEmpty,
         );
         expect(
@@ -277,7 +280,9 @@ void main() {
               ),
             ),
           ],
-          child: MaterialApp(home: Scaffold(body: DetailSheet(tx: tx))),
+          child: MaterialApp(
+            home: Scaffold(body: DetailSheet(tx: tx)),
+          ),
         ),
       );
       // 타일은 테스트에서 실제로 받아지지 않는다(HTTP가 막혀 있다).

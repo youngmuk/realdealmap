@@ -115,40 +115,42 @@ class _Body extends StatelessWidget {
       // 아닌지를 화면으로 알 수 없다.
       Expanded(
         child: Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+          ),
           child: groups.isEmpty
-            ? const _Notice('그 이름의 지역이 없습니다.')
-            : ListView(
-                controller: controller,
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
-                children: [
-                  for (final entry in groups.entries) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      entry.key,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Palette.ink2,
+              ? const _Notice('그 이름의 지역이 없습니다.')
+              : ListView(
+                  controller: controller,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                  children: [
+                    for (final entry in groups.entries) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        entry.key,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Palette.ink2,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final region in entry.value)
-                          _RegionChip(
-                            region: region,
-                            selected: region.sggCd == selected,
-                            onTap: () =>
-                                Navigator.of(context).pop(region.sggCd),
-                          ),
-                      ],
-                    ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final region in entry.value)
+                            _RegionChip(
+                              region: region,
+                              selected: region.sggCd == selected,
+                              onTap: () =>
+                                  Navigator.of(context).pop(region.sggCd),
+                            ),
+                        ],
+                      ),
+                    ],
                   ],
-                ],
-              ),
+                ),
         ),
       ),
     ],

@@ -168,7 +168,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
     // 고른 지역의 이름을 여기서 알고 있다. 같이 남겨 두면 다음에 앱을 켤 때
     // 색인이 오기 전에도 머리말이 제 이름으로 뜬다.
-    final name = ref.read(regionIndexProvider).value?.byCode(picked)?.displayName;
+    final name = ref
+        .read(regionIndexProvider)
+        .value
+        ?.byCode(picked)
+        ?.displayName;
     ref.read(selectedRegionProvider.notifier).select(picked, name: name);
     ref.read(regionFocusProvider.notifier).request();
     unawaited(ref.read(syncProvider.notifier).syncRegion(picked));
@@ -304,7 +308,9 @@ class ConfigWarning extends ConsumerWidget {
       children: [
         for (final issue in issues)
           Container(
-            height: MediaQuery.textScalerOf(context).scale(kConfigWarningHeight),
+            height: MediaQuery.textScalerOf(
+              context,
+            ).scale(kConfigWarningHeight),
             margin: const EdgeInsets.only(top: 2),
             padding: const EdgeInsets.symmetric(horizontal: 7),
             alignment: Alignment.centerLeft,

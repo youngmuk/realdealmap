@@ -70,10 +70,7 @@ void main() {
 
     // 입력칸에 친 글자도 Text다. 목록 안만 센다.
     expect(
-      find.descendant(
-        of: find.byType(ListView),
-        matching: find.text('중구'),
-      ),
+      find.descendant(of: find.byType(ListView), matching: find.text('중구')),
       findsNWidgets(2),
     );
     expect(find.text('부산광역시'), findsOneWidget);

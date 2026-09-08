@@ -68,7 +68,8 @@ class AppConfig {
   ///
   /// MAP_STYLE을 준 경우가 가장 세고, 없으면 OSM 폴백이다.
   /// **OSM 폴백은 개발용이다** — `issues`가 이 상태를 출시 불가로 잡는다.
-  String get resolvedMapStyle => mapStyle.isNotEmpty ? mapStyle : kDefaultMapStyle;
+  String get resolvedMapStyle =>
+      mapStyle.isNotEmpty ? mapStyle : kDefaultMapStyle;
 }
 
 /// 폴백 타일. **개발용이다.**
