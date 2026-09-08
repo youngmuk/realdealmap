@@ -24,7 +24,14 @@ export const geoObjectKey = (sggCd: string): string => `v1/geo/${sggCd}.json`;
  * `nomatch`도 저장한다. **실패를 기록하지 않으면 갱신할 때마다 같은 주소를 다시
  * 물어보게 되고**, 원천이 모르는 주소일수록 영원히 쿼터를 먹는다.
  */
-export type GeoSource = 'kakao' | 'vworld' | 'nomatch';
+/**
+ * 좌표의 출처.
+ *
+ * 예전에는 `'kakao' | 'vworld'`였다. 두 곳 모두 지오코딩 **응답의 저장**을
+ * 금지하므로(카카오 공식 답변, VWorld 약관 제12조) 그 경로를 걷어냈다.
+ * 좌표는 공공 주소 데이터 파일에서 만든다 — 파일 배포본은 저장 제약이 없다.
+ */
+export type GeoSource = 'address' | 'nomatch';
 
 export interface GeoEntry {
   readonly lat: number;

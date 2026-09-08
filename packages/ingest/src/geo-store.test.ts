@@ -16,7 +16,7 @@ const fakeR2 = () => {
 const entry = (lat: number): GeoEntry => ({
   lat,
   lng: 127,
-  source: 'kakao',
+  source: 'address',
   checkedOn: '2026-09-07',
 });
 

@@ -7,26 +7,27 @@
 # 지역 목록을 열어 보고서야 알았다. 여기서 그 조용함을 없앤다.
 #
 # 값은 인자로 받지 않는다 — argv에 두면 셸 히스토리와 프로세스 목록에 그대로 남는다.
-# VWorld 키는 이미 저장소 밖 .env 에 있다. 키를 두는 자리를 하나 더 만들면
-# 두 곳이 어긋날 때 어느 쪽이 진짜인지 알 수 없게 된다.
+#
+# 예전에는 여기서 .env의 VWORLD_KEY를 읽어 넣었다. 인증키를 정리하면서 걷어냈고,
+# 지금 출시를 막는 것은 **배경지도가 없다는 것**이다 — MAP_STYLE이 비어 있으면
+# OSM 폴백으로 떨어지는데 OSM 이용정책은 앱 트래픽을 허용하지 않는다.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ENV_FILE=../.env
 PUBLIC=dart_defines.json
-GENERATED=build/dart_defines.key.json   # build/ 는 두 VCS 모두 무시한다
 
 [ -f "$PUBLIC" ] || { echo "없음: app/$PUBLIC" >&2; exit 1; }
 [ -f "$ENV_FILE" ] || { echo "없음: $ENV_FILE (.env.example 참고)" >&2; exit 1; }
 
-VWORLD_KEY=$(sed -n 's/^VWORLD_KEY=//p' "$ENV_FILE" | head -1 | tr -d '\r"')
-if [ -z "$VWORLD_KEY" ]; then
+MAP_STYLE=$(node -e 'process.stdout.write((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).MAP_STYLE)||"")' "$PUBLIC" 2>/dev/null || true)
+if [ -z "$MAP_STYLE" ]; then
   cat >&2 <<'MSG'
-.env 에 VWORLD_KEY 가 비어 있습니다.
+app/dart_defines.json 의 MAP_STYLE 이 비어 있습니다.
 
-  이 키는 타일 URL에 실려 나가므로 앱 안에 들어갈 수밖에 없다 (설계대로다).
-  없이 빌드하면 OSM 폴백으로 떨어지는데, OSM 이용정책은 앱 트래픽을 허용하지
+  비우면 OSM 폴백으로 떨어지는데, OSM 이용정책은 배포 앱의 트래픽을 허용하지
   않는다 — 기능은 멀쩡해 보이므로 그대로 출시될 수 있다.
+  출시용 배경지도(PMTiles를 R2에 얹고 그 스타일을 가리키는 것)를 먼저 준비하세요.
 MSG
   exit 1
 fi
@@ -74,14 +75,9 @@ if [ -z "$FLUTTER" ]; then
   exit 1
 fi
 
-mkdir -p "$(dirname "$GENERATED")"
-umask 077
-printf '{ "VWORLD_KEY": "%s" }\n' "$VWORLD_KEY" > "$GENERATED"
-trap 'rm -f "$GENERATED"' EXIT
 
 # --obfuscate 는 --split-debug-info 와 짝이다. 심볼은 크래시 해독에만 쓰고
 # 저장소에 넣지 않는다 (build/ 아래라 이미 무시된다).
 "$FLUTTER" build "$TARGET" --release \
   --dart-define-from-file="$PUBLIC" \
-  --dart-define-from-file="$GENERATED" \
   --obfuscate --split-debug-info=build/symbols

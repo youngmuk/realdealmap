@@ -25,7 +25,7 @@ import {
 const entry = (over: Partial<GeoEntry> = {}): GeoEntry => ({
   lat: 37.5,
   lng: 127.0,
-  source: 'kakao',
+  source: 'address',
   checkedOn: '2026-09-01',
   ...over,
 });
@@ -106,7 +106,7 @@ describe('사전 읽기', () => {
 
 describe('실패 재시도 시점', () => {
   test('성공한 항목은 다시 묻지 않는다', () => {
-    expect(isStale(entry({ source: 'kakao', checkedOn: '2020-01-01' }), '2026-09-07')).toBe(false);
+    expect(isStale(entry({ source: 'address', checkedOn: '2020-01-01' }), '2026-09-07')).toBe(false);
   });
 
   test(`실패는 ${NOMATCH_RETRY_DAYS}일이 지나야 다시 묻는다`, () => {

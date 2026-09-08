@@ -49,7 +49,7 @@ npm run regions        # 내려받기 + 생성
 
 ## 보안
 
-서비스키·R2 자격증명·카카오 REST 키는 **GitHub Secrets에만** 둔다. 이 저장소는 public이다.
+서비스키·R2 자격증명은 **GitHub Secrets에만** 둔다. 이 저장소는 public이다.
 
 - 워크플로 로그에 요청 URL 전체를 출력하지 않는다(`serviceKey`가 쿼리스트링에 들어간다).
 - R2 토큰은 대상 버킷 하나로 범위를 제한하고 Object Read and Write만 부여한다.
@@ -61,7 +61,6 @@ npm run regions        # 내려받기 + 생성
 | --- | --- |
 | `DATA_GO_KR_SERVICE_KEY` | 국토부 실거래가 호출 |
 | `R2_ACCOUNT_ID` · `R2_ACCESS_KEY_ID` · `R2_SECRET_ACCESS_KEY` · `R2_BUCKET` | R2 업로드 |
-| `KAKAO_REST_API_KEY` | 주소→좌표 변환 (`geocode-queue`, `refresh-region`) |
 | `CALLBACK_SECRET` | Worker 완료 알림 |
 
 ## 워크플로

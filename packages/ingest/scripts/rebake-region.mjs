@@ -68,6 +68,13 @@ const main = async () => {
   const args = process.argv.slice(2);
   const plan = args.includes('--plan');
   const dryRun = args.includes('--dry-run');
+  // 좌표를 붙이는 게 아니라 **걷어내려고** 굽는다.
+  //
+  // 청크의 좌표는 카카오·VWorld 지오코딩 응답을 저장한 것인데, 두 곳 모두
+  // 응답 결과의 저장을 금지한다(카카오: "기존 저장 데이터는 즉각 삭제해 주셔야
+  // 합니다", VWorld 약관 제12조). 사전만 지우면 사용자에게 나가는 청크에는
+  // 그대로 남으므로 청크에서도 떼어내야 한다.
+  const strip = args.includes('--strip');
   const [sggCd = '11680'] = args.filter((a) => !a.startsWith('--'));
 
   const region = findRegion(sggCd);
@@ -76,7 +83,9 @@ const main = async () => {
   const r2 = new R2Client(configFromEnv());
   const manifest = await readManifest(r2, sggCd);
   if (!manifest) throw new Error(`${sggCd}의 매니페스트가 없습니다. 먼저 배포하세요.`);
-  const dictionary = await readDictionary(r2, sggCd);
+  const stored = await readDictionary(r2, sggCd);
+  // 걷어낼 때는 빈 사전으로 굽는다. buildChunk가 붙일 것이 없으니 좌표가 사라진다.
+  const dictionary = strip ? { ...stored, entries: {} } : stored;
 
   console.log(`지역=${sggCd} ${region.name ?? `${region.sidoName} ${region.sggName}`}`);
   console.log(
@@ -124,8 +133,12 @@ const main = async () => {
   // 지도를 열 중심점이 없어 "찍을 좌표가 없습니다"를 계속 띄운다. 실제로
   // 그랬다 — 다시 굽기가 청크만 바꾸고 색인을 안 건드린 회차가 있었다.
   // 바뀐 것이 없으면 updateRegionIndex가 알아서 아무것도 쓰지 않는다.
-  if (gain <= 0) {
-    console.log('  붙일 좌표가 없다. 청크는 그대로 둔다.');
+  // 평소에는 "이득이 없으면 올리지 않는다" — 같은 내용을 다시 올리면
+  // refreshedAt만 바뀌어 앱이 청크를 통째로 다시 받는다.
+  // 걷어낼 때는 그 판단을 뒤집는다. 줄어드는 것이 목적이기 때문이다.
+  const worthPublishing = strip ? before > 0 : gain > 0;
+  if (!worthPublishing) {
+    console.log(strip ? '  걷어낼 좌표가 없다.' : '  붙일 좌표가 없다. 청크는 그대로 둔다.');
     await reconcileIndex(r2, sggCd, chunks, manifest, dryRun);
     summarize(`### ${sggCd} 다시 굽기 — 청크 변화 없음 (좌표 ${after}건)`);
     return;

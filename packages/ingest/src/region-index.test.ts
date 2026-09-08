@@ -40,7 +40,7 @@ const tx = (jibun: string): Transaction => ({
 const entry = (lat: number, lng: number): GeoEntry => ({
   lat,
   lng,
-  source: 'kakao',
+  source: 'address',
   checkedOn: '2026-09-07',
 });
 
