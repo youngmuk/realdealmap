@@ -61,6 +61,19 @@ MSG
   echo "※ 서명 키가 없어 디버그 키로 서명합니다 — 스토어에 올릴 수 없는 산출물입니다." >&2
 fi
 
+# flutter가 PATH에 없는 기기가 있다. 없다고 여기서 끝내면 무엇이 문제인지
+# "command not found" 한 줄로만 남아, 스크립트가 잘못된 것처럼 보인다.
+FLUTTER="${FLUTTER:-$(command -v flutter || true)}"
+if [ -z "$FLUTTER" ]; then
+  for candidate in /c/dev/flutter/bin/flutter "$HOME/flutter/bin/flutter"; do
+    [ -x "$candidate" ] && { FLUTTER="$candidate"; break; }
+  done
+fi
+if [ -z "$FLUTTER" ]; then
+  echo "flutter를 찾지 못했습니다. FLUTTER=/경로/flutter 로 지정해 주세요." >&2
+  exit 1
+fi
+
 mkdir -p "$(dirname "$GENERATED")"
 umask 077
 printf '{ "VWORLD_KEY": "%s" }\n' "$VWORLD_KEY" > "$GENERATED"
@@ -68,7 +81,7 @@ trap 'rm -f "$GENERATED"' EXIT
 
 # --obfuscate 는 --split-debug-info 와 짝이다. 심볼은 크래시 해독에만 쓰고
 # 저장소에 넣지 않는다 (build/ 아래라 이미 무시된다).
-flutter build "$TARGET" --release \
+"$FLUTTER" build "$TARGET" --release \
   --dart-define-from-file="$PUBLIC" \
   --dart-define-from-file="$GENERATED" \
   --obfuscate --split-debug-info=build/symbols
