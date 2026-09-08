@@ -24,7 +24,7 @@ export const geoObjectKey = (sggCd: string): string => `v1/geo/${sggCd}.json`;
  * `nomatch`도 저장한다. **실패를 기록하지 않으면 갱신할 때마다 같은 주소를 다시
  * 물어보게 되고**, 원천이 모르는 주소일수록 영원히 쿼터를 먹는다.
  */
-export type GeoSource = 'kakao' | 'nomatch';
+export type GeoSource = 'kakao' | 'vworld' | 'nomatch';
 
 export interface GeoEntry {
   readonly lat: number;

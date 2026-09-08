@@ -95,17 +95,25 @@ const main = async () => {
     return;
   }
 
+  // VWorld 키는 **있으면 쓴다.** 없다고 멈추지 않는다 — 카카오만으로도 돌아가야
+  // 하고, 예비 경로가 없다는 이유로 본 경로를 막는 것은 앞뒤가 바뀐 일이다.
   const geocoder = new Geocoder({
     apiKey: requireEnv('KAKAO_REST_API_KEY'),
+    vworldKey: process.env.VWORLD_KEY ?? '',
     regionName,
     budget,
     today,
   });
+  console.log(`  지오코더 ${geocoder.sources.join(' → ')}`);
   const result = await geocoder.run(missing);
 
+  const perSource = Object.entries(result.callsBySource)
+    .map(([label, n]) => `${label} ${n}`)
+    .join(' · ');
   console.log(
-    `  호출 ${result.calls}회 → 성공 ${result.found} · 미매칭 ${result.nomatch} · 이월 ${result.deferred.length}`,
+    `  호출 ${result.calls}회 (${perSource || '없음'}) → 성공 ${result.found} · 미매칭 ${result.nomatch} · 이월 ${result.deferred.length}`,
   );
+  for (const line of result.exhausted) console.log(`  ! 막힘 — ${line}`);
   if (result.errors.length > 0) {
     console.log(`  ! 오류 ${result.errors.length}건 — ${result.errors[0]}`);
   }
@@ -122,8 +130,9 @@ const main = async () => {
   summarize(coverageMarkdown(sggCd, coverage, gate));
 
   // 쿼터에 막힌 것은 실패가 아니라 **다음 실행으로 넘긴 것**이다. 다만 사람이 봐야 한다.
+  // 한 곳만 막힌 것으로는 멈추지 않는다 — 남은 곳이 이어받았을 것이다.
   if (result.quotaExhausted) {
-    console.log('  ! 카카오 쿼터에 막혔다. 나머지는 다음 실행으로.');
+    console.log('  ! 쓸 수 있는 지오코더가 모두 막혔다. 나머지는 다음 실행으로.');
     process.exitCode = EXIT.quota;
   }
 };

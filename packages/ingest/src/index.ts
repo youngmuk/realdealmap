@@ -100,8 +100,19 @@ export type {
 } from './geo.js';
 export { dictionaryBytes, readDictionary, writeDictionary } from './geo-store.js';
 
-export { Geocoder, KAKAO_DAILY_QUOTA } from './geocoder.js';
-export type { GeocodeOutcome, GeocoderOptions, GeocodeResult } from './geocoder.js';
+export {
+  Geocoder,
+  KAKAO_DAILY_QUOTA,
+  KakaoProvider,
+  VWORLD_DAILY_QUOTA,
+  VWorldProvider,
+} from './geocoder.js';
+export type {
+  GeocodeOutcome,
+  GeocodeProvider,
+  GeocoderOptions,
+  GeocodeResult,
+} from './geocoder.js';
 
 export type { BoundingBox, LatLng, RegionIndex, RegionSummary } from './region-index.js';
 export {

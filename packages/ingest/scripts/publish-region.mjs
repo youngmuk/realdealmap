@@ -89,13 +89,24 @@ const topUpDictionary = async (r2, sggCd, dictionary, transactions, budget) => {
     return dictionary;
   }
 
-  const geocoder = new Geocoder({ apiKey, regionName: regionNameOf(sggCd), budget, today });
+  // VWorld 키는 있으면 쓴다. 카카오가 막힌 뒤를 이어받는다.
+  const geocoder = new Geocoder({
+    apiKey,
+    vworldKey: process.env.VWORLD_KEY ?? '',
+    regionName: regionNameOf(sggCd),
+    budget,
+    today,
+  });
   const result = await geocoder.run(missing);
 
+  const perSource = Object.entries(result.callsBySource)
+    .map(([label, n]) => `${label} ${n}`)
+    .join(' · ');
   console.log(
-    `  대상 ${missing.length}건 · 호출 ${result.calls}회 → 성공 ${result.found} · 미매칭 ${result.nomatch} · 이월 ${result.deferred.length}`,
+    `  대상 ${missing.length}건 · 호출 ${result.calls}회 (${perSource || '없음'}) → 성공 ${result.found} · 미매칭 ${result.nomatch} · 이월 ${result.deferred.length}`,
   );
-  if (result.quotaExhausted) console.log('  ! 카카오 쿼터에 막혔다. 나머지는 다음 실행으로.');
+  for (const line of result.exhausted) console.log(`  ! 막힘 — ${line}`);
+  if (result.quotaExhausted) console.log('  ! 지오코더가 모두 막혔다. 나머지는 다음 실행으로.');
   if (result.errors.length > 0) {
     console.log(`  ! 오류 ${result.errors.length}건 — ${result.errors[0]}`);
   }
