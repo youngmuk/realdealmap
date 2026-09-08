@@ -43,6 +43,14 @@ export interface GeocoderOptions {
   /** 이번 실행에서 쓸 수 있는 호출 수의 상한 */
   readonly budget?: number;
   readonly today?: string;
+  /**
+   * 한 곳이 이만큼 내리 실패하면 그 곳을 접는다.
+   *
+   * 접지 않으면 병든 곳 하나가 예산을 통째로 오류로 태운다 — 실제로 VWorld가
+   * 게이트웨이에 막힌 실행에서 **1,389회를 버렸다.** 그 사이 멀쩡한 다른 곳은
+   * 한 번도 불리지 않았다.
+   */
+  readonly errorStreakLimit?: number;
 }
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -100,6 +108,7 @@ export class Geocoder {
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #budget: number;
   readonly #today: string;
+  readonly #errorStreakLimit: number;
 
   constructor(options: GeocoderOptions) {
     this.#providers = buildProviders(options);
@@ -110,6 +119,7 @@ export class Geocoder {
     this.#sleep = options.sleep ?? wait;
     this.#budget = options.budget ?? KAKAO_DAILY_QUOTA;
     this.#today = options.today ?? new Date().toISOString().slice(0, 10);
+    this.#errorStreakLimit = options.errorStreakLimit ?? 20;
   }
 
   /** 쓸 수 있는 곳의 이름. 계획을 찍을 때 쓴다 */
@@ -146,6 +156,8 @@ export class Geocoder {
     const callsBySource: Record<string, number> = {};
     /** 막힌 곳 → 사유. 여기 실린 곳은 이번 실행에서 다시 부르지 않는다 */
     const exhausted = new Map<string, string>();
+    /** 곳마다 마지막 성공 이후 내리 실패한 횟수 */
+    const streak = new Map<string, number>();
     let found = 0;
     let nomatch = 0;
     let calls = 0;
@@ -177,6 +189,7 @@ export class Geocoder {
         switch (outcome.kind) {
           case 'found':
             found += 1;
+            streak.set(provider.label, 0);
             entries[item.key] = {
               lat: Number(outcome.lat.toFixed(6)),
               lng: Number(outcome.lng.toFixed(6)),
@@ -186,6 +199,8 @@ export class Geocoder {
             break;
           case 'nomatch':
             nomatch += 1;
+            // 미매칭도 "그 곳이 살아 있다"는 답이다. 연속 실패를 끊는다.
+            streak.set(provider.label, 0);
             // 좌표가 없다는 사실 자체를 기록한다. 안 그러면 매번 다시 묻는다.
             //
             // 여기서 다음 곳에 다시 묻지 않는다. 미매칭은 실측 0.1% 미만이라
@@ -202,9 +217,18 @@ export class Geocoder {
             // 개수만큼(기본 8건) 다음 실행으로 밀릴 뿐이다.
             exhausted.set(provider.label, outcome.reason);
             break;
-          case 'error':
+          case 'error': {
             errors.push(`${item.key}: ${outcome.detail}`);
+            // 병든 곳 하나가 예산을 통째로 오류로 태우게 두지 않는다. 실제로
+            // VWorld가 게이트웨이에 막힌 실행에서 1,389회를 버렸고, 그 사이
+            // 멀쩡한 다른 곳은 한 번도 불리지 않았다.
+            const n = (streak.get(provider.label) ?? 0) + 1;
+            streak.set(provider.label, n);
+            if (n >= this.#errorStreakLimit) {
+              exhausted.set(provider.label, `연속 오류 ${n}회 — ${outcome.detail}`);
+            }
             break;
+          }
         }
       }
     };

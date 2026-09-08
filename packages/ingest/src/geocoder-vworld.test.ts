@@ -1,6 +1,10 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { VWORLD_DAILY_QUOTA, VWorldProvider } from './geocoder-vworld.js';
+import {
+  VWORLD_DAILY_QUOTA,
+  VWORLD_MIN_INTERVAL_MS,
+  VWorldProvider,
+} from './geocoder-vworld.js';
 
 const KEY = 'SECRET-VWORLD-KEY';
 
@@ -25,7 +29,12 @@ const provider = (responses: readonly (() => Response | Promise<Response>)[]) =>
   });
   return {
     urls,
-    provider: new VWorldProvider({ apiKey: KEY, fetchImpl: impl as unknown as typeof fetch }),
+    // 속도 제한은 아래 전용 describe에서 따로 본다. 여기서는 꺼 둔다.
+    provider: new VWorldProvider({
+      apiKey: KEY,
+      fetchImpl: impl as unknown as typeof fetch,
+      minIntervalMs: 0,
+    }),
   };
 };
 
@@ -129,5 +138,53 @@ describe('키 노출', () => {
     ]);
     const out = await p.ask('주소');
     expect(JSON.stringify(out)).not.toContain(KEY);
+  });
+});
+
+describe('속도 제한', () => {
+  /** 잰 시간 대신 "얼마나 재웠는지"를 본다. 실제로 기다리면 시험이 느려진다. */
+  const paced = (minIntervalMs: number) => {
+    const slept: number[] = [];
+    let clock = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    const impl = vi.fn(async () => okPoint());
+    const p = new VWorldProvider({
+      apiKey: KEY,
+      fetchImpl: impl as unknown as typeof fetch,
+      minIntervalMs,
+      sleep: async (ms: number) => {
+        slept.push(ms);
+        clock += ms;
+      },
+    });
+    return { p, slept, tick: (ms: number) => (clock += ms) };
+  };
+
+  test('연속 호출 사이를 벌린다', async () => {
+    const { p, slept } = paced(200);
+    await p.ask('주소1');
+    await p.ask('주소2');
+    await p.ask('주소3');
+    // 첫 건은 기다리지 않는다. 그 뒤로는 매번 한 칸씩.
+    expect(slept).toEqual([200, 200]);
+  });
+
+  test('이미 시간이 지났으면 기다리지 않는다', async () => {
+    const { p, slept, tick } = paced(200);
+    await p.ask('주소1');
+    tick(1000);
+    await p.ask('주소2');
+    expect(slept).toEqual([]);
+  });
+
+  test('간격을 0으로 두면 묶지 않는다', async () => {
+    const { p, slept } = paced(0);
+    await p.ask('주소1');
+    await p.ask('주소2');
+    expect(slept).toEqual([]);
+  });
+
+  test('기본 간격은 초당 5건이다', () => {
+    expect(VWORLD_MIN_INTERVAL_MS).toBe(200);
   });
 });

@@ -133,3 +133,49 @@ describe('구성', () => {
     expect(() => new Geocoder({ regionName: '구' })).toThrow();
   });
 });
+
+describe('병든 곳 접기', () => {
+  const errors = (n: number): GeocodeOutcome[] =>
+    Array.from({ length: n }, () => ({ kind: 'error', detail: 'HTTP 502' }) as GeocodeOutcome);
+
+  test('내리 실패하는 곳은 접고 다음 곳으로 넘어간다', async () => {
+    const sick = fake('kakao', '카카오', errors(100));
+    const well = fake('vworld', 'VWorld', [found()]);
+
+    const result = await new Geocoder({
+      providers: [sick, well],
+      regionName: '서울특별시 강남구',
+      concurrency: 1,
+      maxAttempts: 1,
+      errorStreakLimit: 5,
+      today: '2026-09-08',
+    }).run(missing(20));
+
+    // 다섯 번 버리고 접는다. 접지 않으면 예산 20을 전부 오류로 태운다.
+    expect(sick.calls()).toBe(5);
+    expect(well.calls()).toBe(15);
+    expect(result.exhausted[0]).toContain('연속 오류');
+  });
+
+  test('성공하면 연속 실패가 끊긴다', async () => {
+    // 실패 3 → 성공 → 실패 3. 한도가 5여도 접히지 않아야 한다.
+    const flaky = fake('kakao', '카카오', [
+      ...errors(3),
+      found(),
+      ...errors(3),
+      found(),
+    ]);
+
+    const result = await new Geocoder({
+      providers: [flaky],
+      regionName: '서울특별시 강남구',
+      concurrency: 1,
+      maxAttempts: 1,
+      errorStreakLimit: 5,
+      today: '2026-09-08',
+    }).run(missing(8));
+
+    expect(result.exhausted).toEqual([]);
+    expect(result.quotaExhausted).toBe(false);
+  });
+});
