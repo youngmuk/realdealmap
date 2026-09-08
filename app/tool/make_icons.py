@@ -56,6 +56,68 @@ def won(draw, size, cx, cy, h, color):
         draw.text((cx, cy), 'W', font=f, fill=color, anchor='mm')
 
 
+def fitted_font(draw, text, path, start_px, max_w):
+    """[max_w] 안에 들어가는 가장 큰 글자 크기를 찾는다.
+
+    눈으로 맞춘 크기는 글자가 바뀌면 조용히 넘친다. 실제로 한 번 넘겨 보고
+    알았다 — 부제가 오른쪽 밖으로 잘려 나갔다. 재서 줄인다.
+    """
+    px = start_px
+    while px > 8:
+        try:
+            f = ImageFont.truetype(path, px)
+        except OSError:
+            return ImageFont.load_default()
+        if draw.textlength(text, font=f) <= max_w:
+            return f
+        px -= 2
+    return ImageFont.truetype(path, 8)
+
+
+def feature_graphic(w=1024, h=500):
+    """Play 스토어 목록 상단에 걸리는 피처 그래픽.
+
+    **크기가 1024x500으로 고정이다.** 다른 크기는 콘솔이 받지 않는다.
+
+    Play는 이 이미지 위에 앱 이름을 겹쳐 그릴 때가 있다. 그래서 글자를
+    가운데 몰아 넣지 않는다 — 겹치면 둘 다 못 읽는다. 아이콘은 왼쪽,
+    글자는 그 오른쪽에 두고 오른쪽 여백을 비워 둔다.
+    """
+    W, H = w * SS, h * SS
+    img = Image.new('RGBA', (W, H), INK)
+    d = ImageDraw.Draw(img)
+
+    # 격자는 세로 기준으로 잡는다. 가로로 잡으면 칸이 납작해져 지도로 안 보인다.
+    step = H // 4
+    lw = max(1, H // 220)
+    x = step
+    while x < W:
+        d.line([(x, 0), (x, H)], fill=RULE, width=lw)
+        x += step
+    y = step
+    while y < H:
+        d.line([(0, y), (W, y)], fill=RULE, width=lw)
+        y += step
+
+    # 핀은 왼쪽에. 아이콘과 같은 규칙으로 그려야 같은 앱으로 보인다.
+    cx = W * 0.115
+    r = H * 0.21
+    cy = H * 0.42
+    pin(d, cx, cy, r, cy + r * 1.55, ACCENT)
+    won(d, W, cx, cy, int(r * 1.15), PAPER)
+
+    title = '실거래가 지도'
+    subtitle = '국토교통부 실거래가를 지도 위에 그대로'
+    left = W * 0.25
+    avail = W * 0.94 - left           # 오른쪽 6%는 비워 둔다
+    big = fitted_font(d, title, FONT, int(H * 0.19), avail)
+    small = fitted_font(d, subtitle, FONT, int(H * 0.075), avail)
+    d.text((left, H * 0.40), title, font=big, fill=PAPER, anchor='lm')
+    d.text((left, H * 0.63), subtitle, font=small,
+           fill=(0xC9, 0xC2, 0xB6, 255), anchor='lm')
+    return img.resize((w, h), Image.LANCZOS)
+
+
 def foreground(size, safe=0.62):
     """적응형 아이콘의 앞면. 안쪽 [safe] 비율 밖은 잘려 나갈 수 있다."""
     img = Image.new('RGBA', (size * SS, size * SS), (0, 0, 0, 0))
@@ -110,3 +172,5 @@ for name, px in ADAPTIVE.items():
     save(background(px), os.path.join(RES, f'mipmap-{name}', 'ic_launcher_background.png'))
 print('스토어')
 save(legacy(512), os.path.join(STORE, 'icon-512.png'))
+# 피처 그래픽은 Play 스토어 목록의 필수 항목이다. 없으면 등록을 못 넘긴다.
+save(feature_graphic(), os.path.join(STORE, 'feature-1024x500.png'))
