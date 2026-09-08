@@ -179,56 +179,58 @@ export class Geocoder {
         const item = missing[index];
         if (!item) return;
 
-        calls += 1;
-        callsBySource[provider.label] = (callsBySource[provider.label] ?? 0) + 1;
-        const outcome = await this.#askWithRetry(
-          provider,
-          geoQuery(this.#regionName, item.umdNm, item.jibun),
-        );
+        const query = geoQuery(this.#regionName, item.umdNm, item.jibun);
 
-        switch (outcome.kind) {
-          case 'found':
+        // 막힌 곳에 걸린 항목은 **붙잡은 채** 다음 곳으로 넘긴다.
+        //
+        // 예전에는 여기서 곧바로 이월했다. 동시 실행 중에 같은 항목을 두 번 세는
+        // 경로를 만들지 않으려던 것인데, 항목을 이 일꾼이 계속 쥐고 있으면 그런
+        // 경로는 애초에 생기지 않는다. 이월의 대가는 작지 않다 — 한 지역에서
+        // 동시성 개수만큼(기본 8건) 밀리고, 그 8건 때문에 다음 실행이 그 지역
+        // 청크를 통째로 다시 받는다(지역당 약 12초 실측).
+        //
+        // 되묻기는 곳이 막혔을 때만이다. 미매칭은 되묻지 않는다 — 실측 0.1% 미만이라
+        // 얻을 것이 거의 없는데, 되물으면 **가장 어려운 주소들에만** 두 곳의 쿼터를
+        // 나란히 태우게 된다.
+        for (let p: GeocodeProvider | null = provider; p !== null; p = usable()) {
+          // 되묻는 만큼 예산을 넘길 수 있다. 곳이 둘이므로 항목당 최대 한 번,
+          // 그것도 막힌 순간에만이다. 한도를 한 건 넘기는 것보다 이월이 비싸다.
+          calls += 1;
+          callsBySource[p.label] = (callsBySource[p.label] ?? 0) + 1;
+          const outcome = await this.#askWithRetry(p, query);
+
+          if (outcome.kind === 'quota') {
+            exhausted.set(p.label, outcome.reason);
+            continue;
+          }
+
+          if (outcome.kind === 'found') {
             found += 1;
-            streak.set(provider.label, 0);
+            streak.set(p.label, 0);
             entries[item.key] = {
               lat: Number(outcome.lat.toFixed(6)),
               lng: Number(outcome.lng.toFixed(6)),
-              source: provider.source,
+              source: p.source,
               checkedOn: this.#today,
             };
-            break;
-          case 'nomatch':
+          } else if (outcome.kind === 'nomatch') {
             nomatch += 1;
             // 미매칭도 "그 곳이 살아 있다"는 답이다. 연속 실패를 끊는다.
-            streak.set(provider.label, 0);
+            streak.set(p.label, 0);
             // 좌표가 없다는 사실 자체를 기록한다. 안 그러면 매번 다시 묻는다.
-            //
-            // 여기서 다음 곳에 다시 묻지 않는다. 미매칭은 실측 0.1% 미만이라
-            // 얻을 것이 거의 없는데, 되물으면 **가장 어려운 주소들에만** 두 곳의
-            // 쿼터를 나란히 태우게 된다.
             entries[item.key] = { lat: 0, lng: 0, source: 'nomatch', checkedOn: this.#today };
-            break;
-          case 'quota':
-            // 이 곳은 이번 실행에서 끝이다. 다음 곳이 있으면 다음 건부터 그쪽이 받는다.
-            //
-            // 이 주소는 처리하지 못한 채 남아 `deferred`로 넘어간다. 여기서 곧바로
-            // 다음 곳에 되묻지 않는 것은, 동시 실행 중에 같은 항목을 두 번 세는
-            // 경로를 만들지 않기 위해서다. 곳 하나가 막힐 때마다 최대 동시성
-            // 개수만큼(기본 8건) 다음 실행으로 밀릴 뿐이다.
-            exhausted.set(provider.label, outcome.reason);
-            break;
-          case 'error': {
+          } else {
             errors.push(`${item.key}: ${outcome.detail}`);
             // 병든 곳 하나가 예산을 통째로 오류로 태우게 두지 않는다. 실제로
             // VWorld가 게이트웨이에 막힌 실행에서 1,389회를 버렸고, 그 사이
             // 멀쩡한 다른 곳은 한 번도 불리지 않았다.
-            const n = (streak.get(provider.label) ?? 0) + 1;
-            streak.set(provider.label, n);
+            const n = (streak.get(p.label) ?? 0) + 1;
+            streak.set(p.label, n);
             if (n >= this.#errorStreakLimit) {
-              exhausted.set(provider.label, `연속 오류 ${n}회 — ${outcome.detail}`);
+              exhausted.set(p.label, `연속 오류 ${n}회 — ${outcome.detail}`);
             }
-            break;
           }
+          break;
         }
       }
     };

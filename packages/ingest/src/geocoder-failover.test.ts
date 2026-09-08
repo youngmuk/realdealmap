@@ -59,11 +59,29 @@ describe('넘김', () => {
 
     const result = await run([kakao, vworld], 5);
 
-    // 막힌 그 한 건은 처리되지 못하고 다음 실행으로 넘어간다.
+    // 막힌 곳에 걸린 그 한 건도 버리지 않는다. 붙잡은 채 뒤로 넘겨 처리한다 —
+    // 그래서 VWorld는 5건을 받고 이월은 없다.
     expect(kakao.calls()).toBe(1);
-    expect(vworld.calls()).toBe(4);
-    expect(result.found).toBe(4);
-    expect(result.deferred).toHaveLength(1);
+    expect(vworld.calls()).toBe(5);
+    expect(result.found).toBe(5);
+    expect(result.deferred).toHaveLength(0);
+  });
+
+  test('막힌 곳에 걸린 건을 이월하지 않는다 — 그 한 건 때문에 지역을 다시 받는다', async () => {
+    // 동시성 8이면 곳이 막히는 순간 8건이 한꺼번에 걸린다. 예전에는 그 8건이
+    // 전부 이월돼, 다음 실행이 그 지역 청크를 통째로 다시 받아야 했다.
+    const kakao = fake('kakao', '카카오', [blocked('일간 한도')]);
+    const vworld = fake('vworld', 'VWorld', [found()]);
+
+    const result = await new Geocoder({
+      providers: [kakao, vworld],
+      regionName: '서울특별시 강남구',
+      concurrency: 8,
+      today: '2026-09-08',
+    }).run(missing(40));
+
+    expect(result.deferred).toHaveLength(0);
+    expect(result.found).toBe(40);
   });
 
   test('한 곳만 막힌 것으로는 실행을 끝내지 않는다', async () => {
@@ -105,16 +123,20 @@ describe('출처 기록', () => {
       3,
     );
     const sources = Object.values(result.entries).map((e) => e.source);
-    expect(sources).toEqual(['vworld', 'vworld']);
+    // 카카오에 걸린 건도 VWorld가 이어받으므로 세 건 모두 남는다.
+    expect(sources).toEqual(['vworld', 'vworld', 'vworld']);
   });
 
-  test('곳마다 몇 번 불렀는지 센다', async () => {
+  test('곳마다 몇 번 불렀는지 센다 — 되물은 것도 센다', async () => {
     const result = await run(
       [fake('kakao', '카카오', [found(), found(), blocked('일간 한도')]), fake('vworld', 'VWorld', [found()])],
       6,
     );
-    expect(result.callsBySource).toEqual({ 카카오: 3, VWorld: 3 });
-    expect(result.calls).toBe(6);
+    // 카카오 3회(성공 2 + 막힘 1), VWorld 4회(막힌 건 되묻기 1 + 남은 3건).
+    // 항목은 6개인데 호출이 7회인 것은 되물은 한 번 때문이다.
+    expect(result.callsBySource).toEqual({ 카카오: 3, VWorld: 4 });
+    expect(result.calls).toBe(7);
+    expect(result.found).toBe(6);
   });
 });
 
