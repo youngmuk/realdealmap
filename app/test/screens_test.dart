@@ -5,8 +5,10 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:realdealmap/config.dart';
 import 'package:realdealmap/data/db/database.dart';
 import 'package:realdealmap/features/detail/detail_sheet.dart';
+import 'package:realdealmap/features/detail/mini_map_view.dart';
 import 'package:realdealmap/features/list/list_page.dart';
 import 'package:realdealmap/state/app_state.dart';
 import 'package:realdealmap/state/filters.dart';
@@ -262,12 +264,27 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
 
+      // 미니뷰가 설정(타일 출처)을 읽는다. 실제 앱에서는 늘 스코프 안이다.
+      // 키를 비워 두면 OSM 폴백으로 간다 — 테스트에서 진짜 키를 쓸 이유가 없다.
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(body: DetailSheet(tx: tx)),
+        ProviderScope(
+          overrides: [
+            configProvider.overrideWithValue(
+              const AppConfig(
+                dataBaseUrl: 'https://example.test',
+                workerBaseUrl: 'https://example.test',
+                mapStyle: '',
+                vworldKey: '',
+              ),
+            ),
+          ],
+          child: MaterialApp(home: Scaffold(body: DetailSheet(tx: tx))),
         ),
       );
-      await tester.pumpAndSettle();
+      // 타일은 테스트에서 실제로 받아지지 않는다(HTTP가 막혀 있다).
+      // pumpAndSettle은 끝나지 않을 수 있으므로 프레임을 몇 번만 돌린다.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
     }
 
     Future<TxRow> insert(TxRowsCompanion row) async {
@@ -327,6 +344,39 @@ void main() {
       await pumpDetail(tester, tx);
 
       expect(find.textContaining('근사'), findsWidgets);
+    });
+
+    // 도면 블록 자리를 지도 미니뷰로 채웠다(D-4). 도면 자체는 건축HUB가
+    // 필요해 아직 없다.
+    testWidgets('좌표가 있으면 지도 미니뷰를 얹는다', (tester) async {
+      final tx = await insert(_tx('a', lat: 37.5, lng: 127.0));
+
+      await pumpDetail(tester, tx);
+
+      expect(find.byType(MiniMapView), findsOneWidget);
+    });
+
+    // 빈 상자를 남기면 "불러오지 못했다"로 읽힌다. 블록 자체가 없어야 한다.
+    testWidgets('좌표가 없으면 미니뷰 자리를 아예 두지 않는다', (tester) async {
+      final tx = await insert(_tx('a'));
+
+      await pumpDetail(tester, tx);
+
+      expect(find.byType(MiniMapView), findsNothing);
+    });
+
+    // 근사 좌표에 뾰족한 핀을 찍으면 "그 건물"이라고 말하는 것이 된다.
+    // 실측으로 226~582 m가 빗나간다.
+    testWidgets('근사 좌표는 미니뷰에서도 근사라고 말한다', (tester) async {
+      final tx = await insert(
+        _tx('a', lat: 37.5, lng: 127.0, precision: 'umd'),
+      );
+
+      await pumpDetail(tester, tx);
+
+      final view = tester.widget<MiniMapView>(find.byType(MiniMapView));
+      expect(view.approximate, isTrue);
+      expect(find.textContaining('법정동 근사 위치'), findsOneWidget);
     });
 
     testWidgets('해제된 거래는 금액에 취소선을 긋는다', (tester) async {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/db/database.dart';
 import '../../theme.dart';
 import 'detail_model.dart';
+import 'mini_map_view.dart';
 
 /// 상세 정보 시트 (T5.6 · FR-3).
 ///
@@ -53,7 +54,21 @@ class DetailSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 10, 20, 40),
         children: [
           const _Grip(),
-          // 도면 블록이 붙을 자리 (D-1~D-4). 지금은 아무것도 그리지 않는다.
+          // 도면 블록 자리 (D-1~D-4).
+          //
+          // 도면 자체는 국토부 실거래가에 없어서 건축HUB가 필요하고(D-1~D-3),
+          // 그것은 별도 활용신청이 선행이다. 명세의 D-4가 "도면이 없을 때 그
+          // 자리를 지도 미니뷰로 대체할지"를 물었고, **대체하기로 했다** —
+          // 지금 가진 좌표로 "여기가 어디인가"에는 답할 수 있다.
+          //
+          // **좌표가 없으면 블록 자체가 없다.** 빈 상자를 남기면 "불러오지
+          // 못했다"로 읽힌다. 원천이 지번을 안 준 거래가 그렇다.
+          if (tx.lat != null && tx.lng != null)
+            MiniMapView(
+              lat: tx.lat!,
+              lng: tx.lng!,
+              approximate: detail.header.approximate,
+            ),
           _Header(detail.header),
           for (final section in detail.sections) ...[
             SectionLabel(section.title),
