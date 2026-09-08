@@ -356,6 +356,7 @@ class _MapPageState extends ConsumerState<MapPage> {
     final bounds = await controller.getVisibleRegion();
     final zoom = controller.cameraPosition?.zoom ?? 13.5;
     final filter = ref.read(filterProvider);
+    final sggCd = ref.read(selectedRegionProvider);
 
     // 가장자리를 조금 넓게 잡는다. 화면 밖에서 들어오는 마커가 딱 맞춰 나타나면
     // 스크롤할 때마다 가장자리가 비어 보인다.
@@ -367,6 +368,9 @@ class _MapPageState extends ConsumerState<MapPage> {
     final pins = await ref
         .read(databaseProvider)
         .pinsInBounds(
+          // 고른 지역으로 묶는다. 좌표가 없는 지역은 카메라가 안 움직여
+          // 이전 지역 위에 머무는데, 묶지 않으면 그 지역 마커가 그대로 찍힌다.
+          sggCd: sggCd,
           south: bounds.southwest.latitude - padLat,
           north: bounds.northeast.latitude + padLat,
           west: bounds.southwest.longitude - padLng,
@@ -401,6 +405,8 @@ class _MapPageState extends ConsumerState<MapPage> {
         ? await ref
               .read(databaseProvider)
               .countPinsInBounds(
+                // 마커 조회와 **같은 조건**이라야 "N건 중 M건만 표시"가 참이 된다.
+                sggCd: sggCd,
                 south: bounds.southwest.latitude - padLat,
                 north: bounds.northeast.latitude + padLat,
                 west: bounds.southwest.longitude - padLng,

@@ -40,6 +40,7 @@ void main() {
     Set<String>? keys,
     bool cancelled = true,
   }) async => (await db.pinsInBounds(
+    sggCd: null, // 지역을 가리지 않는다
     south: s,
     north: n,
     west: w,
@@ -47,6 +48,51 @@ void main() {
     datasetKeys: keys,
     includeCancelled: cancelled,
   )).map((p) => p.txId).toList();
+
+  // 실기기에서 잡았다. 제주시(좌표 0건)를 골랐는데 지도에는 동대문구 마커가
+  // 그대로 남아 있었다. 머리말은 제주시인데 화면은 남의 동네였고, 그 핀을
+  // 누르면 동대문구 거래 상세가 열렸다.
+  //
+  // 원인은 이 조회가 화면 범위만 보고 **고른 지역을 안 봤기** 때문이다.
+  // 좌표가 없는 지역은 카메라가 움직이지 않으므로 이전 지역 위에 그대로 머문다.
+  group('지역 한정', () {
+    test('고른 지역의 거래만 돌려준다', () async {
+      await db.batch((b) {
+        b.insertAll(db.txRows, [
+          tx('동대문', lat: 37.57, lng: 127.04, sggCd: '11230'),
+          tx('제주', lat: 33.49, lng: 126.53, sggCd: '50110'),
+        ]);
+      });
+
+      // 두 좌표를 모두 담는 넓은 상자를 준다. 지역으로 걸러지지 않으면 둘 다 나온다.
+      final pins = await db.pinsInBounds(
+        south: 30,
+        north: 40,
+        west: 120,
+        east: 130,
+        sggCd: '50110',
+      );
+      expect(pins.map((p) => p.txId), ['제주']);
+    });
+
+    test('좌표가 없는 지역을 고르면 아무것도 안 돌려준다', () async {
+      await db.batch((b) {
+        b.insertAll(db.txRows, [
+          tx('동대문', lat: 37.57, lng: 127.04, sggCd: '11230'),
+        ]);
+      });
+
+      // 카메라는 동대문구 위에 그대로 있는 상황이다.
+      final pins = await db.pinsInBounds(
+        south: 37.5,
+        north: 37.6,
+        west: 127.0,
+        east: 127.1,
+        sggCd: '50110',
+      );
+      expect(pins, isEmpty);
+    });
+  });
 
   /// 상한에 걸렸을 때 화면 안 **진짜 총계**를 세는 조회.
   ///
@@ -74,6 +120,7 @@ void main() {
       await seed(30);
 
       final pins = await db.pinsInBounds(
+    sggCd: null, // 지역을 가리지 않는다
         south: 37,
         north: 38,
         west: 126,
@@ -81,6 +128,7 @@ void main() {
         limit: 10,
       );
       final total = await db.countPinsInBounds(
+    sggCd: null, // 지역을 가리지 않는다
         south: 37,
         north: 38,
         west: 126,
@@ -101,6 +149,7 @@ void main() {
         (cancelled: false, months: {'202606'}),
       ]) {
         final pins = await db.pinsInBounds(
+    sggCd: null, // 지역을 가리지 않는다
           south: 37,
           north: 38,
           west: 126,
@@ -109,6 +158,7 @@ void main() {
           months: args.months,
         );
         final total = await db.countPinsInBounds(
+    sggCd: null, // 지역을 가리지 않는다
           south: 37,
           north: 38,
           west: 126,
@@ -126,7 +176,13 @@ void main() {
       await db.into(db.txRows).insert(tx('out', lat: 35.0, lng: 129.0));
 
       expect(
-        await db.countPinsInBounds(south: 37, north: 38, west: 126, east: 128),
+        await db.countPinsInBounds(
+          sggCd: null, // 지역을 가리지 않는다
+          south: 37,
+          north: 38,
+          west: 126,
+          east: 128,
+        ),
         1,
       );
     });
@@ -142,6 +198,7 @@ void main() {
           .insert(tx('b', lat: 37.5, lng: 127.0, period: '202606'));
 
       final pins = await db.pinsInBounds(
+    sggCd: null, // 지역을 가리지 않는다
         south: 37.4,
         north: 37.6,
         west: 126.9,
@@ -174,6 +231,7 @@ void main() {
           );
 
       final cheap = await db.pinsInBounds(
+    sggCd: null, // 지역을 가리지 않는다
         south: 37.4,
         north: 37.6,
         west: 126.9,

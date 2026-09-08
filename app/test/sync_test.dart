@@ -246,6 +246,7 @@ void main() {
       await SyncEngine(db, _FakeRemote(f.objects)).sync('11680');
 
       final pins = await db.pinsInBounds(
+    sggCd: null, // 지역을 가리지 않는다
         south: 37.0,
         north: 38.0,
         west: 126.0,

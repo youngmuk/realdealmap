@@ -129,6 +129,7 @@ class AppDatabase extends _$AppDatabase {
     required double north,
     required double west,
     required double east,
+    required String? sggCd,
     Set<String>? datasetKeys,
     bool includeCancelled = true,
     int? minAmount,
@@ -143,6 +144,14 @@ class AppDatabase extends _$AppDatabase {
       Variable<double>(east),
     ];
 
+    // 화면 범위만 보면 **고른 지역 밖의 거래가 섞인다.** 좌표가 하나도 없는
+    // 지역을 고르면 카메라가 움직이지 않아 이전 지역 위에 그대로 머무는데,
+    // 그때 머리말은 제주시인데 화면에는 동대문구 마커가 찍혀 있었다.
+    // 핀을 누르면 동대문구 거래 상세가 열렸다 — 실기기에서 그렇게 잡았다.
+    if (sggCd != null) {
+      filters.add('AND t.sgg_cd = ?');
+      vars.add(Variable<String>(sggCd));
+    }
     if (datasetKeys != null && datasetKeys.isNotEmpty) {
       final holes = List.filled(datasetKeys.length, '?').join(',');
       filters.add('AND t.dataset_key IN ($holes)');
@@ -176,6 +185,7 @@ class AppDatabase extends _$AppDatabase {
     required double north,
     required double west,
     required double east,
+    required String? sggCd,
     Set<String>? datasetKeys,
     bool includeCancelled = true,
     int? minAmount,
@@ -187,6 +197,7 @@ class AppDatabase extends _$AppDatabase {
       north: north,
       west: west,
       east: east,
+      sggCd: sggCd,
       datasetKeys: datasetKeys,
       includeCancelled: includeCancelled,
       minAmount: minAmount,
@@ -214,6 +225,7 @@ class AppDatabase extends _$AppDatabase {
     required double north,
     required double west,
     required double east,
+    required String? sggCd,
     Set<String>? datasetKeys,
     bool includeCancelled = true,
     int? minAmount,
@@ -226,6 +238,7 @@ class AppDatabase extends _$AppDatabase {
       north: north,
       west: west,
       east: east,
+      sggCd: sggCd,
       datasetKeys: datasetKeys,
       includeCancelled: includeCancelled,
       minAmount: minAmount,
