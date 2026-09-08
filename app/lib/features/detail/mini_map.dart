@@ -29,13 +29,7 @@ const int kMiniMapZoom = 16;
 sealed class TileSource {
   const TileSource();
 
-  const factory TileSource.vworld(String apiKey) = VWorldTiles;
   const factory TileSource.osm() = OsmTiles;
-}
-
-final class VWorldTiles extends TileSource {
-  const VWorldTiles(this.apiKey);
-  final String apiKey;
 }
 
 final class OsmTiles extends TileSource {
@@ -52,12 +46,10 @@ class TileXY {
 
 /// 타일 주소.
 ///
-/// **VWorld는 `{z}/{y}/{x}`다.** 흔한 `{z}/{x}/{y}`가 아니다. 순서를 바꾸면
-/// 지도가 나오긴 하는데 엉뚱한 자리가 나온다 — 배경지도에서 이미 한 번 겪은
-/// 함정이라 여기서도 같은 규칙을 쓰고 테스트로 묶었다.
+/// 출처마다 좌표 순서가 다르다. OSM은 `{z}/{x}/{y}`다. 순서를 바꾸면 지도가
+/// 나오긴 하는데 엉뚱한 자리가 나오고, 축척이 작으면 사람이 못 알아본다.
+/// 그래서 출처를 늘릴 때마다 테스트로 묶는다.
 String tileUrl(TileSource source, TileXY t) => switch (source) {
-  VWorldTiles(:final apiKey) =>
-    'https://api.vworld.kr/req/wmts/1.0.0/$apiKey/Base/${t.z}/${t.y}/${t.x}.png',
   OsmTiles() => 'https://tile.openstreetmap.org/${t.z}/${t.x}/${t.y}.png',
 };
 

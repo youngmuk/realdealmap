@@ -274,7 +274,6 @@ void main() {
                 dataBaseUrl: 'https://example.test',
                 workerBaseUrl: 'https://example.test',
                 mapStyle: '',
-                vworldKey: '',
               ),
             ),
           ],

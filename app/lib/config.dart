@@ -10,10 +10,10 @@ enum ConfigIssue {
   /// 데이터 주소가 없다. 어떤 지역도 받을 수 없다
   noData('데이터 주소가 없는 빌드입니다 (DATA_BASE_URL)'),
 
-  /// VWorld 키가 없어 OSM으로 그린다.
+  /// 자체 배경지도가 없어 OSM으로 그린다.
   /// OSM 타일 서버의 이용 정책은 앱 트래픽을 허용하지 않는다 — 기능 문제가 아니라
   /// 남의 서버를 규정 밖으로 쓰는 문제라서, 안 보이면 그대로 출시된다.
-  fallbackTiles('배경지도가 OSM 폴백입니다 (VWORLD_KEY)');
+  fallbackTiles('배경지도가 OSM 폴백입니다 (MAP_STYLE)');
 
   const ConfigIssue(this.message);
   final String message;
@@ -24,7 +24,6 @@ class AppConfig {
     required this.dataBaseUrl,
     required this.workerBaseUrl,
     required this.mapStyle,
-    required this.vworldKey,
   });
 
   /// R2 공개 버킷. 개발은 `r2.dev`, 출시 때 사용자 지정 도메인으로 바꾼다.
@@ -46,7 +45,6 @@ class AppConfig {
       defaultValue: 'https://realdealmap-trigger.jsmgames.workers.dev',
     ),
     mapStyle: String.fromEnvironment('MAP_STYLE', defaultValue: ''),
-    vworldKey: String.fromEnvironment('VWORLD_KEY', defaultValue: ''),
   );
 
   bool get hasData => dataBaseUrl.isNotEmpty;
@@ -60,61 +58,28 @@ class AppConfig {
   /// 여기서 하는 일의 전부다.
   List<ConfigIssue> get issues => [
     if (!hasData) ConfigIssue.noData,
-    if (mapStyle.isEmpty && vworldKey.isEmpty) ConfigIssue.fallbackTiles,
+    if (mapStyle.isEmpty) ConfigIssue.fallbackTiles,
   ];
 
   /// 스토어에 올려도 되는 빌드인가.
   bool get isReleasable => issues.isEmpty;
 
-  /// VWorld 배경지도 키.
-  ///
-  /// **이 키는 앱에 들어간다.** 타일 요청 URL에 실려 나가므로 숨길 방법이 없고,
-  /// 어떤 타일 제공자를 쓰든 마찬가지다(카카오 JS 키도 같다). 그래서 서버 비밀과는
-  /// 다르게 다룬다 — VWorld 쪽에서 앱/도메인을 등록해 사용처를 제한하는 것이
-  /// 유일한 방어다. 국토부 인증키·R2 자격증명은 여전히 앱에 넣지 않는다.
-  final String vworldKey;
-
   /// 실제로 쓸 지도 스타일.
   ///
-  /// MAP_STYLE을 직접 준 경우가 가장 세고, 그다음이 VWorld, 마지막이 OSM이다.
-  String get resolvedMapStyle {
-    if (mapStyle.isNotEmpty) return mapStyle;
-    if (vworldKey.isNotEmpty) return vworldStyle(vworldKey);
-    return kDefaultMapStyle;
-  }
+  /// MAP_STYLE을 준 경우가 가장 세고, 없으면 OSM 폴백이다.
+  /// **OSM 폴백은 개발용이다** — `issues`가 이 상태를 출시 불가로 잡는다.
+  String get resolvedMapStyle => mapStyle.isNotEmpty ? mapStyle : kDefaultMapStyle;
 }
-
-/// VWorld 배경지도 스타일 (G1 이월 과제의 답).
-///
-/// WMTS 경로가 `{z}/{y}/{x}`다 — 흔한 `{z}/{x}/{y}`가 아니다. 순서를 바꾸면
-/// 타일이 조용히 엉뚱한 자리에 붙어서, 지도가 나오긴 하는데 위치가 틀린다.
-/// 그런 오류는 "안 나온다"보다 알아채기 어렵다.
-///
-/// 좌표계는 웹 메르카토르에 좌상단 원점(XYZ)이라 maplibre 기본값과 같다.
-String vworldStyle(String apiKey) =>
-    '''
-{
-  "version": 8,
-  "sources": {
-    "vworld": {
-      "type": "raster",
-      "tiles": ["https://api.vworld.kr/req/wmts/1.0.0/$apiKey/Base/{z}/{y}/{x}.png"],
-      "tileSize": 256,
-      "attribution": "© 국토교통부 공간정보 오픈플랫폼(VWorld)",
-      "maxzoom": 18
-    }
-  },
-  "layers": [
-    { "id": "vworld", "type": "raster", "source": "vworld" }
-  ]
-}
-''';
 
 /// 폴백 타일. **개발용이다.**
 ///
-/// OSM 타일 서버의 이용 정책은 앱 트래픽을 허용하지 않는다. VWorld 키가 있으면
-/// 그쪽을 쓰고, 없을 때만 여기로 떨어진다. 키 없이도 화면이 뜨게 하려는 것이지
+/// OSM 타일 서버의 이용 정책은 앱 트래픽을 허용하지 않는다. MAP_STYLE을 주면
+/// 그쪽을 쓰고, 없을 때만 여기로 떨어진다. 설정 없이도 화면이 뜨게 하려는 것이지
 /// 이 상태로 출시하려는 것이 아니다.
+///
+/// **출시용 배경지도는 아직 없다.** VWorld 타일을 쓰다가 인증키를 정리하면서
+/// 걷어냈다. 남은 답은 PMTiles 한 벌을 R2에 얹고 MAP_STYLE로 가리키는 것이다 —
+/// 파일 하나를 범위 요청으로 읽으므로 서버가 없고 호출당 비용도 없다.
 const String kDefaultMapStyle = '''
 {
   "version": 8,

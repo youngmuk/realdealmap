@@ -64,7 +64,7 @@ class AboutSheet extends StatelessWidget {
 
         SectionLabel('출처'),
         _Source('거래 정보', '국토교통부 실거래가 공개시스템 (RTMS Open API)'),
-        _Source('배경 지도', '국토교통부 공간정보 오픈플랫폼 (VWorld)'),
+        _Source('배경 지도', '© OpenStreetMap contributors'),
         _Source('행정구역 코드', '행정안전부 행정표준코드관리시스템'),
         _Body(
           '이 앱은 위 기관이 만들거나 운영하는 것이 아니며, 기관과 아무 관계가 '

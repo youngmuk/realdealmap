@@ -95,12 +95,12 @@ void main() {
     }
 
     // 남의 자료를 옮겨 쓰는 앱이 출처를 감추면 그것은 자기 자료인 척하는 것이다.
-    // VWorld는 이용약관상 출처 표기가 의무이기도 하다.
+    // 배경지도(OSM)는 ODbL상 출처 표기가 의무이기도 하다.
     testWidgets('원천 기관을 밝힌다', (tester) async {
       await pump(tester);
 
       expect(find.textContaining('국토교통부 실거래가 공개시스템'), findsWidgets);
-      expect(find.textContaining('VWorld'), findsWidgets);
+      expect(find.textContaining('OpenStreetMap'), findsWidgets);
     });
 
     testWidgets('우리가 그 기관이 아님을 밝힌다', (tester) async {

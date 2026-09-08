@@ -6,7 +6,6 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../state/app_state.dart';
 import '../../theme.dart';
 import 'mini_map.dart';
 
@@ -33,10 +32,9 @@ class MiniMapView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final config = ref.watch(configProvider);
-    final source = config.vworldKey.isNotEmpty
-        ? TileSource.vworld(config.vworldKey)
-        : const TileSource.osm();
+    // 배경지도와 같은 출처를 써야 한다. 지금은 OSM 폴백 하나뿐이다 —
+    // 출시용 배경지도(PMTiles)를 얹으면 여기도 그쪽을 가리킨다.
+    const source = TileSource.osm();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),

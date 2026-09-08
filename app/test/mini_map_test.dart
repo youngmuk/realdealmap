@@ -8,19 +8,9 @@ import 'package:realdealmap/features/detail/mini_map.dart';
 /// "안 나온다"보다 알아채기 어렵고, 실거래가에서는 값비싼 거짓말이 된다.
 void main() {
   group('타일 주소', () {
-    // VWorld WMTS는 경로가 {z}/{y}/{x}다. 흔한 {z}/{x}/{y}가 아니다.
-    // 순서를 바꾸면 엉뚱한 타일이 조용히 붙는다 — 지도 스타일에서 이미 한 번
-    // 겪은 함정이라 미니뷰에서도 같은 규칙을 쓴다.
-    test('VWorld는 z/y/x 순서다', () {
-      final url = tileUrl(
-        const TileSource.vworld('KEY'),
-        const TileXY(z: 16, x: 55899, y: 25377),
-      );
-      expect(url, contains('/16/25377/55899.png'));
-      expect(url, contains('KEY'));
-    });
-
-    test('OSM 폴백은 z/x/y 순서다', () {
+    // 출처마다 좌표 순서가 다르다. 순서를 바꾸면 엉뚱한 타일이 조용히 붙어
+    // 지도가 나오긴 하는데 위치가 틀린다. 출처를 늘릴 때마다 여기에 묶는다.
+    test('OSM은 z/x/y 순서다', () {
       final url = tileUrl(
         const TileSource.osm(),
         const TileXY(z: 16, x: 55899, y: 25377),

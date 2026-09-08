@@ -13,39 +13,33 @@ import 'package:realdealmap/state/app_state.dart';
 /// 릴리스 APK는 **멀쩡히 실행됐다** — 지도는 OSM 폴백으로 그려지고 데이터만
 /// 비어서 "아직 안 받았나 보다"처럼 보였다. 지역 목록을 열어 보고서야 알았다.
 /// 스토어에 올린 뒤에 알았다면 되돌리는 비용이 전혀 달랐다.
-AppConfig config({String style = '', String vworld = ''}) => AppConfig(
+AppConfig config({String style = ''}) => AppConfig(
   dataBaseUrl: '',
   workerBaseUrl: '',
   mapStyle: style,
-  vworldKey: vworld,
 );
 
 void main() {
   const good = AppConfig(
     dataBaseUrl: 'https://example.invalid',
     workerBaseUrl: 'https://worker.invalid',
-    mapStyle: '',
-    vworldKey: 'key',
+    mapStyle: '{}',
   );
 
   group('지도 스타일 선택', () {
     test('직접 준 스타일이 가장 세다', () {
-      expect(config(style: '{}', vworld: 'K').resolvedMapStyle, '{}');
-    });
-
-    test('VWorld 키가 있으면 VWorld를 쓴다', () {
-      expect(config(vworld: 'K').resolvedMapStyle, contains('api.vworld.kr'));
+      expect(config(style: '{}').resolvedMapStyle, '{}');
     });
 
     // OSM 타일 서버의 이용 정책은 앱 트래픽을 허용하지 않는다. 개발용 폴백이다.
-    test('둘 다 없으면 OSM으로 떨어진다', () {
+    test('스타일이 없으면 OSM으로 떨어진다', () {
       expect(config().resolvedMapStyle, contains('tile.openstreetmap.org'));
     });
   });
 
-  group('VWorld 스타일', () {
-    final style = jsonDecode(vworldStyle('TESTKEY')) as Map<String, dynamic>;
-    final tiles = ((style['sources'] as Map)['vworld'] as Map)['tiles'] as List;
+  group('OSM 폴백 스타일', () {
+    final style = jsonDecode(kDefaultMapStyle) as Map<String, dynamic>;
+    final tiles = ((style['sources'] as Map)['osm'] as Map)['tiles'] as List;
 
     test('스타일이 올바른 JSON이다', () {
       expect(style['version'], 8);
@@ -53,18 +47,15 @@ void main() {
     });
 
     // 순서를 바꾸면 지도가 나오긴 하는데 위치가 틀린다. "안 나온다"보다 알아채기 어렵다.
-    test('WMTS 경로가 z/y/x 순서다', () {
-      expect(tiles.single, endsWith('/{z}/{y}/{x}.png'));
+    test('타일 경로가 z/x/y 순서다', () {
+      expect(tiles.single, endsWith('/{z}/{x}/{y}.png'));
     });
 
-    test('키가 경로에 들어간다', () {
-      expect(tiles.single, contains('/1.0.0/TESTKEY/Base/'));
-    });
-
+    // ODbL은 출처 표기를 요구한다.
     test('출처를 밝힌다', () {
       expect(
-        ((style['sources'] as Map)['vworld'] as Map)['attribution'],
-        contains('VWorld'),
+        ((style['sources'] as Map)['osm'] as Map)['attribution'],
+        contains('OpenStreetMap'),
       );
     });
   });
@@ -80,7 +71,6 @@ void main() {
         dataBaseUrl: '',
         workerBaseUrl: 'https://worker.invalid',
         mapStyle: '',
-        vworldKey: 'key',
       );
 
       expect(c.issues, contains(ConfigIssue.noData));
@@ -94,7 +84,6 @@ void main() {
         dataBaseUrl: 'https://example.invalid',
         workerBaseUrl: 'https://worker.invalid',
         mapStyle: '',
-        vworldKey: '',
       );
 
       expect(c.issues, contains(ConfigIssue.fallbackTiles));
@@ -106,7 +95,6 @@ void main() {
         dataBaseUrl: 'https://example.invalid',
         workerBaseUrl: 'https://worker.invalid',
         mapStyle: '{"version":8}',
-        vworldKey: '',
       );
 
       expect(c.issues, isEmpty);
@@ -115,7 +103,7 @@ void main() {
     test('사유마다 무엇을 빠뜨렸는지 이름을 댄다', () {
       // 경고를 보고 무엇을 고쳐야 할지 모르면 경고가 아니라 잡음이다.
       expect(ConfigIssue.noData.message, contains('DATA_BASE_URL'));
-      expect(ConfigIssue.fallbackTiles.message, contains('VWORLD_KEY'));
+      expect(ConfigIssue.fallbackTiles.message, contains('MAP_STYLE'));
     });
   });
 
@@ -152,14 +140,13 @@ void main() {
           dataBaseUrl: '',
           workerBaseUrl: '',
           mapStyle: '',
-          vworldKey: '',
         ),
       );
 
       // 사유마다 한 줄이다. 뭉뚱그리면 무엇을 고쳐야 하는지 하나만 읽힌다
       expect(find.textContaining('출시 불가'), findsNWidgets(2));
       expect(find.textContaining('DATA_BASE_URL'), findsOneWidget);
-      expect(find.textContaining('VWORLD_KEY'), findsOneWidget);
+      expect(find.textContaining('MAP_STYLE'), findsOneWidget);
     });
 
     // 상태바가 내주는 높이와 실제로 쓰는 높이가 어긋나면 경고가 잘린다.
@@ -169,7 +156,6 @@ void main() {
         dataBaseUrl: '',
         workerBaseUrl: '',
         mapStyle: '',
-        vworldKey: '',
       );
       final size = await pumpWarning(tester, broken);
 
@@ -194,7 +180,6 @@ void main() {
                 dataBaseUrl: '',
                 workerBaseUrl: '',
                 mapStyle: '',
-                vworldKey: '',
               ),
             ),
           ],
