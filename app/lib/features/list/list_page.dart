@@ -162,8 +162,12 @@ class _MissingBanner extends StatelessWidget {
 
 /// 지도에 못 그리는 건수.
 ///
-/// 감추면 사용자는 데이터가 없는 것으로 오해한다. 실제로는 원천이 지번을 가려
-/// 좌표를 만들 수 없었을 뿐이고, 목록에는 전부 있다.
+/// 감추면 사용자는 데이터가 없는 것으로 오해한다. 실제로는 좌표를 만들지 못했을
+/// 뿐이고, 목록에는 전부 있다.
+///
+/// **이유는 하나가 아니다.** 원천이 지번을 가려서일 수도 있고, 위치 자료 자체가
+/// 아직 없어서일 수도 있다(2026-09 현재가 그 상태다). 그래서 문구에 이유를 박지
+/// 않는다 — 한 가지 이유만 적어 두면 다른 이유일 때 앱이 거짓말을 하게 된다.
 class _UnmappedBanner extends StatelessWidget {
   const _UnmappedBanner({required this.count});
   final int count;
@@ -181,7 +185,7 @@ class _UnmappedBanner extends StatelessWidget {
         border: const Border(left: BorderSide(color: Palette.warn, width: 3)),
       ),
       child: Text(
-        '지도 미표시 ${formatCount(count)}건 — 원천이 지번을 공개하지 않아 좌표를 만들 수 없는 '
+        '지도 미표시 ${formatCount(count)}건 — 좌표를 만들 수 없어 지도에 찍지 못한 '
         '거래입니다. 목록에는 전부 있습니다.',
         style: const TextStyle(
           fontSize: 12.5,
