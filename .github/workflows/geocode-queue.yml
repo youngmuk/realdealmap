@@ -89,7 +89,9 @@ jobs:
               exit 1
             fi
           else
-            LIST=$(node packages/ingest/scripts/list-published.mjs)
+            # 사전이 빈 지역부터 돈다. 코드순으로 돌면 다 채운 서울을 훑느라
+            # 쿼터가 남은 채로 실행이 끝난다 — 미착수는 뒤쪽 코드대에 몰려 있다.
+            LIST=$(node packages/ingest/scripts/list-published.mjs --need-first)
           fi
           echo "대상 $(echo "$LIST" | wc -l)개"
           {
@@ -112,12 +114,19 @@ jobs:
           filled=""
           failed=""
           quota=0
+          # 지역별 출력을 모아 둔다. 실행이 끝난 뒤 "정말 무언가를 만들었는가"를
+          # 세기 위해서다 — 로그를 눈으로 읽어야만 알 수 있으면 아무도 안 읽는다.
+          ALL="${RUNNER_TEMP:-/tmp}/geocode-all.log"
+          ONE="${RUNNER_TEMP:-/tmp}/geocode-one.log"
+          : > "$ALL"
           while IFS= read -r code; do
             [ -z "$code" ] && continue
             echo "::group::$code"
             set +e
-            node packages/ingest/scripts/geocode-region.mjs "$code" "--budget=$BUDGET"
+            node packages/ingest/scripts/geocode-region.mjs "$code" "--budget=$BUDGET" > "$ONE" 2>&1
             rc=$?
+            cat "$ONE"
+            cat "$ONE" >> "$ALL"
             # 사전만 채우면 지도에는 아무것도 안 바뀐다. 매 시간 갱신은 최근
             # 3개월만 다시 굽기 때문에, 나머지 아홉 달은 좌표 없는 청크로 남는다.
             # 여기서 이어 구워야 적재해 둔 12개월이 전부 지도에 찍힌다.
@@ -150,6 +159,25 @@ jobs:
           done <<< "$LIST"
           echo "filled=$filled" >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+          # **산출물이 0이면 실패다.**
+          #
+          # 2026-09-08의 실행 #1·#2가 이것 때문에 조용히 지나갔다. 두 번 모두
+          # 지오코더를 불렀고(43회·37회) 성공은 0건이었는데 잡은 success로 끝났다.
+          # 러너에서 VWorld 연결이 안 되는(HTTP 502 / fetch failed) 상태였고,
+          # 회로차단기가 제공자를 접은 뒤 남은 지역이 전부 이월됐다. 지역별로는
+          # 경고만 나가므로 결론은 초록이었다. 이 앱이 거듭 당한
+          # "오류 없이 아무 일도 안 일어나는" 실패다.
+          #
+          # 부른 적이 없으면(=채울 게 없어서 0회) 성공 0은 정상이다. 부른 뒤의
+          # 0만 실패로 본다.
+          calls=$(grep -oE '호출 [0-9]+회' "$ALL" | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          found=$(grep -oE '성공 [0-9]+' "$ALL" | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          echo "합계 — 호출 ${calls}회 · 성공 ${found}건"
+          if [ "$calls" -gt 0 ] && [ "$found" -eq 0 ]; then
+            echo "::error::지오코더를 ${calls}회 불렀는데 좌표를 한 건도 얻지 못했습니다. 러너에서 지오코더에 닿지 못하는 상태일 수 있습니다(HTTP 502 / fetch failed)."
+            exit 1
+          fi
         env:
           LIST: ${{ steps.pick.outputs.list }}
           BUDGET: ${{ inputs.budget || '20000' }}
