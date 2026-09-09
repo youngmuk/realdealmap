@@ -30,9 +30,7 @@ class RealDealMapApp extends StatelessWidget {
     builder: (context, child) {
       final media = MediaQuery.of(context);
       return MediaQuery(
-        data: media.copyWith(
-          textScaler: TextScaler.linear(media.textScaler.scale(1) * kTextScale),
-        ),
+        data: media.copyWith(textScaler: appTextScaler(media.textScaler)),
         child: child!,
       );
     },
@@ -356,35 +354,46 @@ class _StatusBar extends ConsumerWidget {
     final sync = ref.watch(syncProvider);
     final (text, color) = _message(sync);
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (sync.running)
-                const SizedBox(
-                  width: 10,
-                  height: 10,
-                  child: CircularProgressIndicator(strokeWidth: 1.6),
+    // **상태바 전체가 누를 자리다.**
+    //
+    // 고지 한 줄만 누를 수 있게 두면 그 자리가 18dp라 손가락으로 겨냥하기
+    // 어렵다(안드로이드 권고 48dp). 줄을 키우면 지도가 그만큼 줄어든다.
+    // 대신 이미 자리를 차지하고 있는 기준 시각 줄까지 같은 자리로 묶었다 —
+    // 기준 시각이 무엇인지도 [AboutSheet]가 설명하므로 뜻도 어긋나지 않는다.
+    // 안쪽 [AboutBanner]의 InkWell은 그대로 둔다. 같은 곳으로 가므로
+    // 어느 쪽이 먼저 받든 결과가 같다.
+    return InkWell(
+      onTap: () => AboutSheet.show(context),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                if (sync.running)
+                  const SizedBox(
+                    width: 10,
+                    height: 10,
+                    child: CircularProgressIndicator(strokeWidth: 1.6),
+                  ),
+                if (sync.running) const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: TextStyle(fontSize: 11.5, color: color),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              if (sync.running) const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  text,
-                  style: TextStyle(fontSize: 11.5, color: color),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const AboutBanner(),
-          const ConfigWarning(),
-        ],
+              ],
+            ),
+            const AboutBanner(),
+            const ConfigWarning(),
+          ],
+        ),
       ),
     );
   }

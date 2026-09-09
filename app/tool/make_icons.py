@@ -106,7 +106,7 @@ def feature_graphic(w=1024, h=500):
     pin(d, cx, cy, r, cy + r * 1.55, ACCENT)
     won(d, W, cx, cy, int(r * 1.15), PAPER)
 
-    title = '실거래가 지도'
+    title = '실거래지도'
     subtitle = '국토교통부 실거래가를 지도 위에 그대로'
     left = W * 0.25
     avail = W * 0.94 - left           # 오른쪽 6%는 비워 둔다

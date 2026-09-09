@@ -65,10 +65,15 @@ class SyncOutcome {
 }
 
 /// 내려받아 검증까지 마친 청크. 반영 직전까지 메모리에 들고 있는다.
+///
+/// 여기 담기는 것은 **이미 DB 행으로 바뀐 것**이다. 트랜잭션 안에서 바꾸면
+/// 모양이 어긋난 한 줄이 `TypeError`로 터지는데, 그 예외는 [SyncEngine.sync]의
+/// 어느 `catch`에도 걸리지 않아 화면까지 올라간다. 받는 자리에서 바꿔 두면
+/// 해시가 어긋났을 때와 같은 길(거부)로 보낼 수 있다.
 class _VerifiedChunk {
-  _VerifiedChunk(this.file, this.records);
+  _VerifiedChunk(this.file, this.rows);
   final ManifestFile file;
-  final List<Map<String, dynamic>> records;
+  final List<TxRowsCompanion> rows;
 }
 
 /// 청크를 한 번에 몇 개까지 동시에 받을지.
@@ -147,7 +152,7 @@ class SyncEngine {
     final verified = <_VerifiedChunk>[];
     for (var i = 0; i < missing.length; i += kChunkConcurrency) {
       final slice = missing.skip(i).take(kChunkConcurrency).toList();
-      final results = await Future.wait(slice.map(_tryFetch));
+      final results = await Future.wait(slice.map((f) => _tryFetch(sggCd, f)));
 
       // **매니페스트 순서대로** 본다. 병렬로 받으면 실패가 도착하는 순서가
       // 매번 달라지는데, 그때그때 다른 것을 보고하면 같은 고장이 실행할
@@ -200,9 +205,12 @@ class SyncEngine {
   /// `Future.wait`은 하나가 던지면 나머지 결과를 버린다. 그러면 어느 것이
   /// 먼저 던졌느냐에 따라 보고가 달라진다 — 예외를 값으로 받아 두고
   /// 순서대로 판정한다.
-  Future<(_VerifiedChunk?, Object?)> _tryFetch(ManifestFile file) async {
+  Future<(_VerifiedChunk?, Object?)> _tryFetch(
+    String sggCd,
+    ManifestFile file,
+  ) async {
     try {
-      return (await _fetchAndVerify(file), null);
+      return (await _fetchAndVerify(sggCd, file), null);
     } on RemoteException catch (e) {
       return (null, e);
     } on _ChunkRejected catch (e) {
@@ -215,7 +223,10 @@ class SyncEngine {
   /// 서버는 **압축 전 정규 JSON**을 해시한다(§5.3). gzip 바이트는 zlib 버전과
   /// 플랫폼에 따라 달라지므로 그것을 해시하면 같은 데이터가 다른 값이 된다.
   /// 그래서 여기서도 풀어서 해시한다.
-  Future<_VerifiedChunk?> _fetchAndVerify(ManifestFile file) async {
+  Future<_VerifiedChunk?> _fetchAndVerify(
+    String sggCd,
+    ManifestFile file,
+  ) async {
     final raw = await _remote.get(file.path);
     if (raw == null) return null;
 
@@ -238,10 +249,9 @@ class SyncEngine {
     final records = body['records'];
     if (records is! List) throw _ChunkRejected('${file.path}에 records가 없다');
 
-    return _VerifiedChunk(
-      file,
-      records.cast<Map<String, dynamic>>().toList(growable: false),
-    );
+    return _VerifiedChunk(file, [
+      for (final record in records) _toCompanion(sggCd, file, record),
+    ]);
   }
 
   /// 한 트랜잭션 안에서 갈아 끼운다. 중간에 끊기면 통째로 되돌아간다.
@@ -271,12 +281,9 @@ class SyncEngine {
         await _deleteRows(manifest.sggCd, f.datasetKey, f.month);
 
         await _db.batch((b) {
-          b.insertAll(
-            _db.txRows,
-            chunk.records.map((r) => _toCompanion(manifest.sggCd, f, r)),
-          );
+          b.insertAll(_db.txRows, chunk.rows);
         });
-        applied += chunk.records.length;
+        applied += chunk.rows.length;
 
         await _db
             .into(_db.chunkRows)
@@ -321,36 +328,70 @@ class SyncEngine {
 
   String _nowIso() => _now().toUtc().toIso8601String();
 
+  /// 청크 한 줄을 DB 행으로 바꾼다. **모양이 다르면 [_ChunkRejected]를 던진다.**
+  ///
+  /// `as`로 바로 형변환하면 던지는 것이 `TypeError`인데, 그것은 [sync]의 어느
+  /// `catch`에도 걸리지 않는다. 우리가 만든 자료라 그럴 일이 없어야 하지만,
+  /// "그럴 일이 없다"와 "그때 앱이 어떻게 되는가"는 다른 이야기다. 거부로
+  /// 보내면 옛 자료를 그대로 둔 채 이유를 말할 수 있다(FR-7).
   TxRowsCompanion _toCompanion(
     String sggCd,
     ManifestFile file,
-    Map<String, dynamic> r,
+    Object? record,
   ) {
-    int? asInt(Object? v) => v == null ? null : (v as num).toInt();
-    double? asDouble(Object? v) => v == null ? null : (v as num).toDouble();
+    Never bad(String what, Object? value) =>
+        throw _ChunkRejected('${file.path}의 $what 모양이 다르다: $value');
+
+    if (record is! Map<String, dynamic>) bad('records 원소', record);
+    final r = record;
+
+    String? asString(String key) {
+      final v = r[key];
+      if (v is String) return v;
+      if (v == null) return null;
+      bad(key, v);
+    }
+
+    int? asInt(String key) {
+      final v = r[key];
+      if (v is num) return v.toInt();
+      if (v == null) return null;
+      bad(key, v);
+    }
+
+    double? asDouble(String key) {
+      final v = r[key];
+      if (v is num) return v.toDouble();
+      if (v == null) return null;
+      bad(key, v);
+    }
+
+    // 실거래 한 건을 가리키는 열쇠다. 없으면 그 줄이 무엇인지 알 수 없다.
+    final txId = asString('id');
+    if (txId == null) bad('id', r['id']);
 
     return TxRowsCompanion.insert(
-      txId: r['id'] as String,
+      txId: txId,
       sggCd: sggCd,
       datasetKey: file.datasetKey,
       period: file.month,
-      umdNm: r['umdNm'] as String? ?? '',
-      contractedOn: r['contractedOn'] as String? ?? '',
+      umdNm: asString('umdNm') ?? '',
+      contractedOn: asString('contractedOn') ?? '',
       cancelled: r['cancelled'] == true,
-      precision: r['precision'] as String? ?? 'umd',
+      precision: asString('precision') ?? 'umd',
       // 상세화면이 유형별 고유 항목을 여기서 읽는다(FR-3). 통째로 보존한다.
       raw: jsonEncode(r['raw'] ?? const <String, String>{}),
-      jibun: Value(r['jibun'] as String?),
-      name: Value(r['name'] as String?),
-      areaSqm: Value(asDouble(r['areaSqm'])),
-      floor: Value(asInt(r['floor'])),
-      builtYear: Value(asInt(r['builtYear'])),
-      amount: Value(asInt(r['amount'])),
-      deposit: Value(asInt(r['deposit'])),
-      monthlyRent: Value(asInt(r['monthlyRent'])),
-      cancelledOn: Value(r['cancelledOn'] as String?),
-      lat: Value(asDouble(r['lat'])),
-      lng: Value(asDouble(r['lng'])),
+      jibun: Value(asString('jibun')),
+      name: Value(asString('name')),
+      areaSqm: Value(asDouble('areaSqm')),
+      floor: Value(asInt('floor')),
+      builtYear: Value(asInt('builtYear')),
+      amount: Value(asInt('amount')),
+      deposit: Value(asInt('deposit')),
+      monthlyRent: Value(asInt('monthlyRent')),
+      cancelledOn: Value(asString('cancelledOn')),
+      lat: Value(asDouble('lat')),
+      lng: Value(asDouble('lng')),
     );
   }
 }

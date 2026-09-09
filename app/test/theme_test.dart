@@ -54,4 +54,38 @@ void main() {
       reason: '본문이 배경에 묻힌다',
     );
   });
+
+  // 우리 배율 2배 위에 시스템 설정이 그대로 곱해지면 4배까지 간다.
+  // 그 배율에서는 금액 줄이 폭을 넘고 상태바 고지가 잘린다.
+  group('글자 배율 상한', () {
+    test('시스템 기본에서는 우리 배율 그대로다', () {
+      expect(appTextScaler(TextScaler.noScaling).scale(10), 10 * kTextScale);
+    });
+
+    test('시스템 설정을 그대로 태운다 — 상한 아래에서는', () {
+      expect(appTextScaler(const TextScaler.linear(1.4)).scale(10), 10 * 2.8);
+    });
+
+    test('가장 큰 시스템 설정에서도 상한에서 끊는다', () {
+      // 안드로이드의 가장 큰 설정(2.0). 끊지 않으면 4.0이다.
+      expect(
+        appTextScaler(const TextScaler.linear(2.0)).scale(10),
+        10 * kMaxTextScale,
+      );
+    });
+
+    test('작게 쓰는 설정은 줄여 준다 — 상한만 걸었다', () {
+      expect(appTextScaler(const TextScaler.linear(0.85)).scale(10), 10 * 1.7);
+    });
+
+    test('상세창은 상한을 건 뒤의 값에 비율을 곱한다', () {
+      expect(
+        appTextScaler(
+          const TextScaler.linear(2.0),
+          of: kDetailTextScale,
+        ).scale(10),
+        closeTo(10 * kMaxTextScale * kDetailTextScale, 1e-9),
+      );
+    });
+  });
 }

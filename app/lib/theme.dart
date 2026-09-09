@@ -17,6 +17,26 @@ import 'package:flutter/material.dart';
 /// 사용자의 시스템 글자 크기 설정에 곱해지므로 접근성 설정도 그대로 살아 있다.
 const double kTextScale = 2.0;
 
+/// 우리 배율과 시스템 설정을 곱한 값의 **상한**.
+///
+/// [kTextScale]은 시스템 설정에 곱해진다. 안드로이드의 가장 큰 글자 설정이
+/// 2.0이므로 그대로 두면 4.0까지 간다. 그 배율에서는 금액 한 줄이 화면 폭을
+/// 넘고 상태바의 고지가 잘린다 — **잘린 고지는 고지가 아니다.**
+///
+/// 3.0으로 끊는 것은 접근성을 깎는 것이 아니다. 우리 기본이 이미 2배라
+/// 여기서의 3.0은 보통 앱의 3배 글자다. 시스템 설정 1.5배까지는 그대로
+/// 살아 있고, 그 위는 읽히는 대신 잘리기 시작하는 구간이다.
+const double kMaxTextScale = 3.0;
+
+/// 시스템 글자 크기 위에 우리 배율을 얹되 [kMaxTextScale]에서 끊는다.
+///
+/// [of]는 화면별로 한 단계 더 줄일 때 쓴다(상세창의 [kDetailTextScale]).
+/// 상한을 먼저 걸고 나서 곱하므로, 상세창도 같은 비율을 유지한다.
+TextScaler appTextScaler(TextScaler system, {double of = 1}) =>
+    TextScaler.linear(
+      (system.scale(1) * kTextScale).clamp(0.0, kMaxTextScale) * of,
+    );
+
 /// 상세 정보창만 [kTextScale]의 이 비율로 줄인다.
 ///
 /// 상세는 항목이 스무 개 가까이 되는 표라, 지도·목록과 같은 배율이면 한 화면에

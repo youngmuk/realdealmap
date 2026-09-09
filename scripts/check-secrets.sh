@@ -6,8 +6,8 @@
 # **값을 화면에 내지 않는다.** 있는지 없는지만 말한다 — 확인하겠다고 로그에
 # 박아 넣으면 그 로그가 새 유출 경로가 된다.
 #
-# VWorld 키는 예외다. 지도 타일 URL에 들어가므로 앱에 있을 수밖에 없고,
-# 그래서 있는 것이 정상이다. 없으면 오히려 지도가 안 나온다.
+# 저장소 쪽은 `scan-history.sh`가 본다 — HEAD만 보면 지웠다 되살릴 수 있는
+# 값을 놓친다. 여기서는 그것을 부르고, APK 안을 마저 본다.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -25,7 +25,6 @@ SERVER_SECRETS=(
   R2_ACCESS_KEY_ID
   R2_SECRET_ACCESS_KEY
   R2_ACCOUNT_ID
-  KAKAO_REST_API_KEY
   CALLBACK_SECRET
   CLOUDFLARE_API_TOKEN
   GITHUB_DISPATCH_TOKEN
@@ -33,21 +32,10 @@ SERVER_SECRETS=(
 
 fail=0
 
-echo "== 저장소 =="
-for name in "${SERVER_SECRETS[@]}"; do
-  val=$(get "$name")
-  if [ -z "$val" ]; then
-    echo "  $name: .env에 없음 (건너뜀)"
-    continue
-  fi
-  # 추적되는 파일만 본다. .env 자체는 추적되지 않는다.
-  if git grep -qF -- "$val" HEAD 2>/dev/null; then
-    echo "  $name: ❌ 커밋된 파일에서 발견"
-    fail=1
-  else
-    echo "  $name: ✅ 없음"
-  fi
-done
+echo "== 저장소 (커밋 히스토리 전체) =="
+# 값은 **환경으로** 넘긴다. 인자로 주면 프로세스 목록에 그대로 남는다.
+# .env를 통째로 source 하지 않는 것은, 그 파일이 셸로 실행되게 두지 않기 위해서다.
+env   DATA_GO_KR_SERVICE_KEY="$(get DATA_GO_KR_SERVICE_KEY)"   R2_ACCESS_KEY_ID="$(get R2_ACCESS_KEY_ID)"   R2_SECRET_ACCESS_KEY="$(get R2_SECRET_ACCESS_KEY)"   CALLBACK_SECRET="$(get CALLBACK_SECRET)"   CLOUDFLARE_API_TOKEN="$(get CLOUDFLARE_API_TOKEN)"   GITHUB_DISPATCH_TOKEN="$(get GITHUB_DISPATCH_TOKEN)"   bash scripts/scan-history.sh || fail=1
 
 echo
 echo "== APK: $APK =="
@@ -75,15 +63,21 @@ for name in "${SERVER_SECRETS[@]}"; do
   fi
 done
 
-# VWorld는 반대로, 없으면 문제다.
-vworld=$(get VWORLD_KEY)
-if [ -n "$vworld" ]; then
-  if grep -rqF -- "$vworld" "$work" 2>/dev/null; then
-    echo "  VWORLD_KEY: ✅ 있음 (지도 타일 URL — 설계상 앱에 들어간다)"
-  else
-    echo "  VWORLD_KEY: ⚠️  APK에 없습니다. --dart-define을 빠뜨리면 지도가 안 나옵니다"
-    fail=1
-  fi
+# 배경지도는 반대로, **없으면** 문제다.
+#
+# MAP_STYLE을 빠뜨린 빌드는 OSM 폴백으로 그려진다. 화면은 멀쩡해 보이지만
+# OSM 이용정책은 배포 앱의 트래픽을 허용하지 않는다 — 그대로 출시하면
+# 우리가 남의 서버로 서비스하는 것이 된다. build-release.sh가 먼저 막지만,
+# 그 스크립트를 거치지 않고 만든 APK가 여기까지 올 수 있다.
+style=$(node -e 'process.stdout.write((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).MAP_STYLE)||"")' app/dart_defines.json 2>/dev/null || true)
+if [ -z "$style" ]; then
+  echo "  MAP_STYLE: ❌ app/dart_defines.json에 없습니다 (OSM 폴백으로 나갑니다)"
+  fail=1
+elif grep -rqF -- "$style" "$work" 2>/dev/null; then
+  echo "  MAP_STYLE: ✅ 있음 (우리 배경지도를 가리킨다)"
+else
+  echo "  MAP_STYLE: ❌ APK에 없습니다. build-release.sh로 다시 빌드하세요"
+  fail=1
 fi
 
 echo

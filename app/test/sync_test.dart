@@ -352,6 +352,91 @@ void main() {
       expect(result.message, contains('청크가 없다'));
     });
 
+    // 이 줄들은 우리가 만든 자료라 이런 모양이 올 리 없다. 그래도 왔을 때
+    // 무엇이 되는지는 정해 둬야 한다 — 형변환이 그냥 터지면 그 예외는
+    // 어느 catch에도 안 걸리고 화면까지 올라간다.
+    test('숫자 자리에 문자열이 오면 거부한다', () async {
+      final good = goodFixture();
+      await SyncEngine(db, _FakeRemote(good.objects)).sync('11680');
+
+      final f = _Fixture('11680');
+      f.addChunk(
+        propertyType: 'apartment',
+        tradeType: 'sale',
+        month: '202609',
+        records: [
+          {...record('z'), 'amount': '삼억이천'},
+        ],
+      );
+      f.publish(refreshedAt: DateTime.utc(2026, 9, 7, 13));
+
+      final result = await SyncEngine(db, _FakeRemote(f.objects)).sync('11680');
+
+      expect(result.status, SyncStatus.rejected);
+      expect(result.keptExisting, isTrue);
+      expect(result.message, contains('amount'));
+      expect(await rowCount(), 2, reason: '거부됐는데 데이터가 바뀌었다');
+    });
+
+    test('id가 없으면 거부한다', () async {
+      final f = _Fixture('11680');
+      f.addChunk(
+        propertyType: 'apartment',
+        tradeType: 'sale',
+        month: '202608',
+        records: [
+          {...record('a')}..remove('id'),
+        ],
+      );
+      f.publish();
+
+      final result = await SyncEngine(db, _FakeRemote(f.objects)).sync('11680');
+
+      expect(result.status, SyncStatus.rejected);
+      expect(result.message, contains('id'));
+      expect(await rowCount(), 0);
+    });
+
+    test('records 안에 객체가 아닌 것이 있으면 거부한다', () async {
+      final f = _Fixture('11680');
+      f.addChunk(
+        propertyType: 'apartment',
+        tradeType: 'sale',
+        month: '202608',
+        records: [record('a')],
+      );
+      f.publish();
+      // 청크를 다시 만들면 해시가 안 맞으므로, 해시까지 같이 고친다.
+      final path = f.files.first.path;
+      final json = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'sggCd': '11680',
+            'datasetKey': 'apartment/sale',
+            'period': '202608',
+            'count': 1,
+            'records': ['이건 객체가 아니다'],
+          }),
+        ),
+      );
+      f.objects[path] = Uint8List.fromList(gzip.encode(json));
+      f.files[0] = ManifestFile(
+        propertyType: 'apartment',
+        tradeType: 'sale',
+        month: '202608',
+        path: path,
+        sha256: sha256.convert(json).toString(),
+        bytes: f.objects[path]!.length,
+        records: 1,
+      );
+      f.publish();
+
+      final result = await SyncEngine(db, _FakeRemote(f.objects)).sync('11680');
+
+      expect(result.status, SyncStatus.rejected);
+      expect(await rowCount(), 0);
+    });
+
     // 앞으로 나온 판을 반쯤 읽어 쓰면 무엇이 옛 규칙으로 들어왔는지 알 수 없다.
     test('모르는 판은 읽지 않는다', () async {
       final f = goodFixture();
