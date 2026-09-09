@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'vitest';
 
 import { GEO_VERSION, geoObjectKey, type GeoDictionary, type GeoEntry } from './geo.js';
-import { dictionaryBytes, readDictionary, writeDictionary } from './geo-store.js';
+import {
+  dictionaryBody,
+  dictionaryBytes,
+  readDictionary,
+  writeDictionary,
+} from './geo-store.js';
 import type { R2Client } from './r2.js';
 
 const fakeR2 = () => {
@@ -73,5 +78,41 @@ describe('사전 저장', () => {
 
   test('크기를 미리 잴 수 있다', () => {
     expect(dictionaryBytes(dict({ '논현동|1': entry(37.5) }))).toBeGreaterThan(0);
+  });
+});
+
+describe('사전 압축', () => {
+  const sample: GeoDictionary = {
+    version: GEO_VERSION,
+    sggCd: '11680',
+    generatedAt: '2026-09-09T00:00:00.000Z',
+    entries: { '역삼동|737': entry(37.500219) },
+  };
+
+  test('gzip으로 올라간다', () => {
+    const body = dictionaryBody(sample);
+
+    expect(body[0]).toBe(0x1f);
+    expect(body[1]).toBe(0x8b);
+  });
+
+  test('올린 것을 그대로 되읽는다', async () => {
+    const { client } = fakeR2();
+    await writeDictionary(client, sample);
+
+    expect(await readDictionary(client, '11680')).toEqual(sample);
+  });
+
+  // 압축을 켜기 전에 올라간 사전이 R2에 남아 있을 수 있다. 판이 같으면 읽혀야
+  // 한다 — 못 읽으면 빈 사전이 되고, 그 회차 좌표가 통째로 사라진다.
+  test('압축하지 않은 옛 사전도 읽는다', async () => {
+    const { client, store } = fakeR2();
+    store.set(geoObjectKey('11680'), new TextEncoder().encode(JSON.stringify(sample)));
+
+    expect(await readDictionary(client, '11680')).toEqual(sample);
+  });
+
+  test('압축한 크기를 보고한다', () => {
+    expect(dictionaryBytes(sample)).toBe(dictionaryBody(sample).byteLength);
   });
 });

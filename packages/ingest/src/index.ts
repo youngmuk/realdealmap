@@ -98,7 +98,12 @@ export type {
   CoverageRow,
   GateResult,
 } from './geo.js';
-export { dictionaryBytes, readDictionary, writeDictionary } from './geo-store.js';
+export {
+  dictionaryBody,
+  dictionaryBytes,
+  readDictionary,
+  writeDictionary,
+} from './geo-store.js';
 
 export type { BoundingBox, LatLng, RegionIndex, RegionSummary } from './region-index.js';
 export {
@@ -121,6 +126,16 @@ export {
 } from './region-index.js';
 
 export { UtmkError, utmkToWgs84, wgs84ToUtmk } from './utmk.js';
+
+export type { EntrcPoint, EntrcReport } from './entrc.js';
+export type { SplitReport } from './entrc.js';
+export {
+  addEntrcRows,
+  addSplitRegions,
+  ENTRC_SPLIT_PARENTS,
+  entrcSplitKey,
+  parseEntrcRow,
+} from './entrc.js';
 
 export type { JusoBuilding, JusoIndexReport, JusoTable } from './juso.js';
 export {
