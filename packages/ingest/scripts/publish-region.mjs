@@ -30,6 +30,7 @@ import {
   readDictionary,
   recentPeriods,
   R2Client,
+  UpstreamError,
 } from '../dist/index.js';
 
 import { loadEnv } from './env.mjs';
@@ -59,8 +60,13 @@ const topUpDictionary = async (_r2, _sggCd, dictionary) => dictionary;
 /**
  * 종료 코드를 구분한다. CI가 "무엇 때문에 멈췄는지"를 로그를 읽지 않고 알아야 한다.
  * 보류(2)는 실패가 아니라 **의도한 중단**이지만, 사람이 봐야 하므로 0을 주지 않는다.
+ *
+ * `upstream`(4)은 **원천에 닿지도 못한** 경우다. 우리 쪽 고장과 갈라 두는 이유는
+ * 여러 지역을 도는 잡 때문이다 — 원천이 죽어 있으면 24개 지역이 전부 같은 이유로
+ * 실패하고, 지역마다 재시도 예산을 다 태워 43분을 쓴다(2026-09-08 예열 실패가 그랬다).
+ * 부르는 쪽이 이 코드를 보고 **첫 지역에서 멈출 수 있게** 한다.
  */
-const EXIT = { ok: 0, error: 1, held: 2, issues: 3 };
+const EXIT = { ok: 0, error: 1, held: 2, issues: 3, upstream: 4 };
 
 /** GitHub Actions에서 실행 중이면 잡 요약에 남긴다. 로컬에서는 아무것도 안 한다. */
 const summarize = (markdown) => {
@@ -249,5 +255,8 @@ const main = async () => {
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);
-  process.exitCode = EXIT.error;
+  // `transport`는 원천이 답을 준 오류가 아니라 **연결 자체가 안 붙은** 경우다.
+  // 이미 재시도 예산을 다 쓰고 여기까지 온 것이므로, 다음 지역도 결과가 같다.
+  process.exitCode =
+    error instanceof UpstreamError && error.transport ? EXIT.upstream : EXIT.error;
 });

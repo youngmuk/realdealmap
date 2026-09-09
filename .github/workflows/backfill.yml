@@ -103,7 +103,7 @@ jobs:
       - name: 적재
         if: steps.plan.outputs.count != '0'
         run: |
-          ok=0; held=0; failed=0
+          ok=0; held=0; failed=0; down=0
           while read -r code; do
             [ -n "$code" ] || continue
             echo "::group::$code"
@@ -120,6 +120,9 @@ jobs:
               # 보류는 한 지역의 사정이다. 여기서 멈추면 나머지 지역이 통째로
               # 밀리므로, 세어 두고 계속 간다. 다음 실행이 다시 시도한다.
               2)   held=$((held+1)); echo "::warning::$code 배포 보류" ;;
+              # 원천에 닿지도 못했다. 다음 지역도 결과가 같으므로 여기서 멈춘다 —
+              # 2026-09-08에는 24개 지역이 같은 이유로 실패하며 43분을 태웠다.
+              4)   down=1; echo "::warning::$code — 원천에 닿지 못했다"; break ;;
               *)   failed=$((failed+1)); echo "::warning::$code 실패 (종료 코드 $rc)" ;;
             esac
           done < /tmp/todo.txt
@@ -135,6 +138,14 @@ jobs:
             echo "| 보류 | $held |"
             echo "| 실패 | $failed |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # 원천이 죽은 것과 우리가 고장난 것을 갈라 적는다. 빨간불의 뜻이
+          # "코드를 보라"인지 "기다려라"인지가 로그를 열기 전에 보여야 한다.
+          if [ "$down" -eq 1 ]; then
+            echo "| 중단 | 원천 불통 |" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::원천(apis.data.go.kr)에 닿지 못해 중단했습니다 — 우리 쪽 고장이 아닙니다"
+            exit 1
+          fi
 
           # 전부 실패했으면 무언가 구조적으로 잘못된 것이다. 조용히 넘기지 않는다.
           if [ "$ok" -eq 0 ] && [ "$failed" -gt 0 ]; then
