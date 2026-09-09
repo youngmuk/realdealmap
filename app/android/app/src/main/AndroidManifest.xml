@@ -1,25 +1,25 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 인터넷: R2에서 데이터를 받는다 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!--
-      대략 위치만 받는다. 첫 진입에서 시군구 하나를 고르는 데만 쓰고, 좌표는
-      기기 밖으로 나가지 않는다 (앱 안에 이미 있는 지역 색인에서 고른다).
-      시군구를 고르는 데 미터 단위 정확도는 아무 값어치가 없으므로 정밀 위치는
-      요구하지 않는다 — 필요 없는 권한을 받는 것은 그 자체로 비용이다.
+      위치는 **두 단계로** 받는다. 좌표는 어느 쪽이든 기기 밖으로 나가지 않는다
+      (앱 안에 이미 있는 지역 색인에서 시군구를 고를 뿐이다).
+
+      1. 대략 위치 — 첫 진입에서 열어 볼 시군구 하나를 고르는 데 쓴다.
+      2. 정밀 위치 — **지도의 "현재 위치" 버튼을 누른 사람에게만** 따로 묻는다.
+
+      전에는 1번만 두고 정밀 위치를 매니페스트에서 아예 뺐다. 시군구를 고르는 데
+      미터 단위 정확도가 필요 없다고 봤기 때문인데, 실기기에서 틀린 것으로
+      드러났다 — 안드로이드의 대략 위치는 일부러 1~2km 격자로 뭉갠 값을 준다.
+      군자동(광진구 경계에서 북쪽으로 700m)에서 눌렀더니 동대문구가 열렸다.
+      구 한가운데면 맞지만 경계 근처에서는 옆 구로 넘어가고, "현재 위치"라면서
+      줌 16으로 들어가는 버튼에서는 그 오차가 그대로 보인다.
+
+      단계를 나누는 일은 MainActivity가 한다 — geolocator는 여기 선언된 것을
+      전부 한꺼번에 요청해서, 그대로 두면 첫 실행에도 "정확한 위치" 창이 뜬다.
     -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!--
-      geolocator 플러그인이 자기 매니페스트에서 정밀 위치를 얹는다. 그대로 두면
-      권한 창에 "정확한 위치"가 뜨고, 우리가 방침과 스토어 설명에 적어 둔
-      "정밀 위치를 요구하지 않는다"가 **거짓말이 된다.**
-
-      병합 단계에서 뺀다. 대략 위치만으로 시군구를 고르는 데 부족함이 없다
-      (`LocationAccuracy.low`).
-    -->
-    <uses-permission
-        android:name="android.permission.ACCESS_FINE_LOCATION"
-        tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!--
       기기 백업에 담지 않는다.
 

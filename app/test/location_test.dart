@@ -38,7 +38,19 @@ class _FakeLocation implements LocationSource {
   final DeviceFix? fix;
 
   @override
-  Future<(LocationOutcome, DeviceFix?)> current() async => (outcome, fix);
+  Future<(LocationOutcome, DeviceFix?)> current({bool precise = false}) async =>
+      (outcome, fix);
+}
+
+/// 정밀 위치를 물어봤는지 기록한다.
+class _PrecisionSpy implements LocationSource {
+  bool? askedPrecise;
+
+  @override
+  Future<(LocationOutcome, DeviceFix?)> current({bool precise = false}) async {
+    askedPrecise = precise;
+    return (LocationOutcome.ok, const DeviceFix(37.50, 127.03));
+  }
 }
 
 void main() {
@@ -151,6 +163,29 @@ void main() {
       expect(asked, isFalse);
     });
 
+    // 첫 진입의 자동 열기는 대략 위치만 받는다. 아직 아무것도 부탁하지 않은
+    // 사용자에게 정확한 위치부터 요구하지 않는다.
+    test('버튼은 정밀 위치를 물어본다', () async {
+      final spy = _PrecisionSpy();
+
+      await locateHere(spy, index);
+
+      expect(spy.askedPrecise, isTrue);
+    });
+
+    // 사용자가 대략 위치만 줬는데 정확한 자리인 척하면 안 된다.
+    test('대략 위치로 잡힌 것은 그렇다고 표시된다', () async {
+      final result = await locateHere(
+        const _FakeLocation(
+          LocationOutcome.ok,
+          DeviceFix(37.50, 127.03, precise: false),
+        ),
+        index,
+      );
+
+      expect((result as Located).precise, isFalse);
+    });
+
     test('사유마다 다른 안내 문구가 나온다', () {
       final messages = {
         for (final o in LocationOutcome.values) o: locationProblem(o),
@@ -169,7 +204,7 @@ class _SpyLocation implements LocationSource {
   final void Function() onAsk;
 
   @override
-  Future<(LocationOutcome, DeviceFix?)> current() async {
+  Future<(LocationOutcome, DeviceFix?)> current({bool precise = false}) async {
     onAsk();
     return (LocationOutcome.failed, null);
   }

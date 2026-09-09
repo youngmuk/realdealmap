@@ -27,11 +27,15 @@ sealed class LocateResult {
 /// 위치를 못 찾은 것이 아니다. 둘을 같은 실패로 뭉뚱그리면 사용자는
 /// 위치 권한을 다시 뒤지게 된다.
 final class Located extends LocateResult {
-  const Located(this.lat, this.lng, this.region);
+  const Located(this.lat, this.lng, this.region, {required this.precise});
 
   final double lat;
   final double lng;
   final RegionSummary? region;
+
+  /// 정밀 위치로 잡았는가. 거짓이면 좌표가 1~2km 어긋나 있을 수 있다 —
+  /// 사용자가 정밀 위치를 안 준 경우다. 그대로 진행하되 화면이 밝힌다.
+  final bool precise;
 }
 
 /// 좌표를 못 얻었다. 이유는 [outcome]이 들고 있다.
@@ -55,9 +59,17 @@ Future<LocateResult> locateHere(
 ) async {
   if (index == null || index.isEmpty) return const LocateNoIndex();
 
-  final (outcome, fix) = await source.current();
+  // **여기가 정밀 위치를 물어보는 유일한 자리다.** 사용자가 직접 누른
+  // 버튼이라야 정확한 위치를 요구할 명분이 있다. 첫 진입의 자동 열기는
+  // 지금도 대략 위치만 받는다(app.dart).
+  final (outcome, fix) = await source.current(precise: true);
   if (fix == null) return LocateFailed(outcome);
 
   final point = LatLng(fix.lat, fix.lng);
-  return Located(fix.lat, fix.lng, index.at(point) ?? index.nearest(point));
+  return Located(
+    fix.lat,
+    fix.lng,
+    index.at(point) ?? index.nearest(point),
+    precise: fix.precise,
+  );
 }

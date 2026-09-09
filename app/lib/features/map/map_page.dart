@@ -676,7 +676,7 @@ class _MapPageState extends ConsumerState<MapPage> {
         case LocateFailed(:final outcome):
           final message = locationProblem(outcome);
           if (message != null) _say(message);
-        case Located(:final lat, :final lng, :final region):
+        case Located(:final lat, :final lng, :final region, :final precise):
           if (region != null && region.sggCd != ref.read(selectedRegionProvider)) {
             ref
                 .read(selectedRegionProvider.notifier)
@@ -688,11 +688,21 @@ class _MapPageState extends ConsumerState<MapPage> {
           // **지역 이동 신호(regionFocusProvider)를 쓰지 않는다.** 그쪽은
           // 시군구 중심점으로 가는 길이라, 여기서 부르면 방금 맞춘 좌표를
           // 곧바로 덮어쓴다.
+          // **정밀 위치가 아니면 깊이 들어가지 않는다.** 대략 위치는 1~2km
+          // 격자로 뭉갠 값이라, 줌 16(화면 폭 수백 m)으로 열면 사용자는 자기가
+          // 서 있지도 않은 골목을 자기 자리로 읽는다. 동 단위로만 보여준다.
           await _controller?.animateCamera(
-            ml.CameraUpdate.newLatLngZoom(ml.LatLng(lat, lng), kFocusZoom),
+            ml.CameraUpdate.newLatLngZoom(
+              ml.LatLng(lat, lng),
+              precise ? kFocusZoom : 13.5,
+            ),
           );
-          if (region == null && mounted) {
+          if (!mounted) return;
+          if (region == null) {
             _say('현재 위치 근처에는 아직 배포된 지역이 없습니다.');
+          } else if (!precise) {
+            // 조용히 넘어가면 어긋난 자리를 정확한 자리로 읽는다.
+            _say('대략적인 위치입니다. 정확한 위치를 허용하면 더 가깝게 갑니다.');
           }
       }
     } finally {
