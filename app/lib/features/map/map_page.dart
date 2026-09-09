@@ -29,6 +29,17 @@ import 'style_watchdog.dart';
 /// 자리에 묶음 하나만 보이고, 사용자는 자기가 누른 거래를 못 찾는다.
 const double kFocusZoom = kClusterMaxZoom;
 
+/// 현재 위치 버튼으로 갈 때의 확대 수준.
+///
+/// [kFocusZoom]보다 **두 단계 더 들어간다**(화면 폭 대략 600m → 150m).
+/// 상세창에서 데려올 때와 목적이 다르기 때문이다 — 그쪽은 "이 거래가 어디쯤인지"를
+/// 보여주는 것이라 주변이 함께 보여야 하지만, 여기는 **지금 서 있는 자리**다.
+/// 정밀 위치의 오차가 10~20m 남짓이라 이 배율에서도 점이 제자리에 선다.
+///
+/// 대략 위치일 때는 여기까지 오지 않는다 — 뭉갠 좌표를 이 배율로 열면
+/// 서 있지도 않은 골목이 자기 자리가 된다.
+const double kMyLocationZoom = 18;
+
 /// 지도 화면 (T5.4 · T5.5).
 ///
 /// 마커를 위젯으로 만들지 않는다. 좌표를 GeoJSON 소스로 한 번 넘기면 네이티브
@@ -743,7 +754,7 @@ class _MapPageState extends ConsumerState<MapPage>
           // 격자로 뭉갠 값이라, 줌 16(화면 폭 수백 m)으로 열면 사용자는 자기가
           // 서 있지도 않은 골목을 자기 자리로 읽는다. 동 단위로만 보여준다.
           final target = ml.LatLng(lat, lng);
-          final zoom = precise ? kFocusZoom : 13.5;
+          final zoom = precise ? kMyLocationZoom : 13.5;
 
           // **할 말은 먼저 한다.** 아래에서 뷰를 새로 만드는 갈래는 그대로
           // 빠져나가므로, 뒤에 두면 그 경우에만 안내가 사라진다.
