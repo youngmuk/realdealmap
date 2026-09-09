@@ -45,6 +45,7 @@ export default {
       case 'fresh':
         return json({ accepted: false, alreadyRunning: false, retryAfterSeconds: decision.retryAfterSeconds });
       case 'budget':
+        // 시간 예산이 찼을 때가 대부분이다 — 한 시간 뒤에는 다시 열린다.
         return json({ error: 'quota_exhausted' }, 429, { 'retry-after': '3600' });
       case 'unknownRegion':
         return json({ error: 'invalid_sgg' }, 400);

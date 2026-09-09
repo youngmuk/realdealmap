@@ -94,6 +94,22 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    /// 화면 밖의 고지까지 확인한다.
+    ///
+    /// 전문은 `ListView`라 보이지 않는 항목은 **아예 만들어지지도 않는다.**
+    /// 그냥 `find`로 찾으면 "고지가 없다"와 "아래에 있다"가 구별되지 않는다 —
+    /// 실제로 출처 한 줄을 늘렸더니 아래쪽 고지 검사가 통째로 실패했다.
+    /// 사용자는 스크롤할 수 있으므로 여기서도 스크롤해서 찾는다.
+    ///
+    /// [target]은 **정확히 하나**에 맞아야 한다. `.first`를 붙이면 아직 안 만들어진
+    /// 항목에서 빈 결과에 `first`를 부르다 던진다 — 이 함수의 목적이 사라진다.
+    Future<void> seek(WidgetTester tester, Finder target) =>
+        tester.scrollUntilVisible(
+          target,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+
     // 남의 자료를 옮겨 쓰는 앱이 출처를 감추면 그것은 자기 자료인 척하는 것이다.
     // 배경지도(OSM)는 ODbL상 출처 표기가 의무이기도 하다.
     testWidgets('원천 기관을 밝힌다', (tester) async {
@@ -101,6 +117,8 @@ void main() {
 
       expect(find.textContaining('국토교통부 실거래가 공개시스템'), findsWidgets);
       expect(find.textContaining('OpenStreetMap'), findsWidgets);
+      // 좌표는 도로명주소에서 온다. 출처 표기가 제1유형의 유일한 의무다.
+      expect(find.textContaining('도로명주소'), findsWidgets);
     });
 
     testWidgets('우리가 그 기관이 아님을 밝힌다', (tester) async {
@@ -130,7 +148,10 @@ void main() {
     testWidgets('위치가 기기 밖으로 나가지 않음을 밝힌다', (tester) async {
       await pump(tester);
 
+      await seek(tester, find.text('위치는 기기 밖으로 나가지 않습니다'));
       expect(find.text('위치는 기기 밖으로 나가지 않습니다'), findsOneWidget);
+
+      await seek(tester, find.text('권한을 주지 않아도 됩니다'));
       expect(find.textContaining('권한을 주지 않아도'), findsWidgets);
     });
 
@@ -141,6 +162,7 @@ void main() {
     testWidgets('광고가 광고 식별자를 쓴다는 것을 밝힌다', (tester) async {
       await pump(tester);
 
+      await seek(tester, find.text('광고는 광고 식별자를 씁니다'));
       expect(find.textContaining('광고 식별자'), findsWidgets);
       expect(find.textContaining('AdMob'), findsWidgets);
       // 우리가 안 모은다는 말이 "아무도 안 모은다"로 읽히면 안 된다.

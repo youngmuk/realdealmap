@@ -1,6 +1,13 @@
 import { DurableObject } from 'cloudflare:workers';
 
-import { budgetDay, decide, type Decision, type RegionState } from './policy.js';
+import {
+  budgetDay,
+  budgetHour,
+  type BudgetUsage,
+  decide,
+  type Decision,
+  type RegionState,
+} from './policy.js';
 
 /**
  * 지역 하나의 갱신 상태를 쥔 Durable Object.
@@ -19,10 +26,10 @@ export class RegionTrigger extends DurableObject<Env> {
    * 예산은 전역이라 이 DO가 가질 수 없다. 호출자가 현재 사용량을 넘겨주고,
    * 받아들여진 경우에만 호출자가 예산을 올린다.
    */
-  async claim(usedToday: number): Promise<Decision> {
+  async claim(used: BudgetUsage): Promise<Decision> {
     const now = Date.now();
     const state = await this.#read();
-    const decision = decide(state, now, usedToday);
+    const decision = decide(state, now, used);
 
     if (decision.kind === 'accept') {
       await this.ctx.storage.put({ lastTriggeredAt: now, running: true });
@@ -73,24 +80,38 @@ const LOCK_TTL_MS = 30 * 60 * 1000;
  * 세고, 거절은 세지 않는다 — 거절까지 여기로 보내면 이 DO가 병목이자 공격 표적이 된다.
  */
 export class TriggerBudget extends DurableObject<Env> {
-  async used(): Promise<number> {
-    return this.#today();
+  async used(): Promise<BudgetUsage> {
+    const now = Date.now();
+    return { today: await this.#count('day', budgetDay(now)), thisHour: await this.#count('hour', budgetHour(now)) };
   }
 
-  /** 사용량을 1 올리고 올린 뒤 값을 돌려준다. */
-  async consume(): Promise<number> {
-    const day = budgetDay(Date.now());
-    const next = (await this.#today()) + 1;
-    await this.ctx.storage.put({ day, count: next });
+  /** 두 창의 사용량을 1씩 올리고 올린 뒤 값을 돌려준다. */
+  async consume(): Promise<BudgetUsage> {
+    const now = Date.now();
+    const next = {
+      today: (await this.#count('day', budgetDay(now))) + 1,
+      thisHour: (await this.#count('hour', budgetHour(now))) + 1,
+    };
+    await this.ctx.storage.put({
+      day: budgetDay(now),
+      count: next.today,
+      hour: budgetHour(now),
+      hourCount: next.thisHour,
+    });
     return next;
   }
 
-  /** 날짜가 바뀌면 0부터 다시 센다. 만료 작업을 따로 두지 않기 위해서다. */
-  async #today(): Promise<number> {
-    const day = budgetDay(Date.now());
-    const stored = await this.ctx.storage.get<string>('day');
-    if (stored !== day) return 0;
-    return (await this.ctx.storage.get<number>('count')) ?? 0;
+  /**
+   * 창이 바뀌면 0부터 다시 센다. 만료 작업을 따로 두지 않기 위해서다.
+   *
+   * 날짜와 시간을 **각각** 저장한다. 시간 키만 두고 날짜를 유추하면 24시간 넘게
+   * 조용하다가 온 요청에서 옛 날짜의 합계를 되살리게 된다.
+   */
+  async #count(windowKey: 'day' | 'hour', current: string): Promise<number> {
+    const stored = await this.ctx.storage.get<string>(windowKey);
+    if (stored !== current) return 0;
+    const countKey = windowKey === 'day' ? 'count' : 'hourCount';
+    return (await this.ctx.storage.get<number>(countKey)) ?? 0;
   }
 }
 

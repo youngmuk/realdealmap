@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { dispatchRefresh, DispatchError } from './dispatch.js';
-import { decide, type RegionState } from './policy.js';
+import { type BudgetUsage, decide, type RegionState } from './policy.js';
 
 /**
  * 핸들러 로직을 DO 런타임 없이 검증한다.
@@ -12,6 +12,9 @@ import { decide, type RegionState } from './policy.js';
  */
 
 const idle: RegionState = { lastTriggeredAt: undefined, running: false };
+
+/** 일일 사용량만 신경 쓰는 검사에서 쓰는 지름길. 시간 사용량은 0으로 둔다. */
+const used = (today: number): BudgetUsage => ({ today, thisHour: 0 });
 
 describe('repository_dispatch 호출', () => {
   const capture = () => {
@@ -112,12 +115,12 @@ describe('콜백 비밀 비교', () => {
 describe('판정과 응답의 대응', () => {
   // §5.2의 계약: 이미 돌고 있는 것은 오류가 아니라 202 + alreadyRunning 이다.
   test('running은 실패가 아니다', () => {
-    expect(decide({ lastTriggeredAt: Date.now(), running: true }, Date.now(), 0).kind).toBe(
+    expect(decide({ lastTriggeredAt: Date.now(), running: true }, Date.now(), used(0)).kind).toBe(
       'running',
     );
   });
 
   test('예산 소진만 429로 간다', () => {
-    expect(decide(idle, Date.now(), 99999).kind).toBe('budget');
+    expect(decide(idle, Date.now(), used(99999)).kind).toBe('budget');
   });
 });
