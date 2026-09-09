@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:realdealmap/data/db/database.dart';
 import 'package:realdealmap/features/ads/ad_policy.dart';
+import 'package:realdealmap/features/ads/admob.dart';
 import 'package:realdealmap/features/ads/ads.dart';
 import 'package:realdealmap/state/ads.dart';
 import 'package:realdealmap/state/app_state.dart';
@@ -30,6 +32,8 @@ class _FakeAds implements InterstitialAds {
 }
 
 void main() {
+  _idPairing();
+
   final t0 = DateTime.utc(2026, 9, 8, 12);
 
   group('규칙', () {
@@ -216,6 +220,62 @@ void main() {
       const none = NoInterstitialAds();
 
       expect(await none.show(), isFalse);
+    });
+  });
+}
+
+/// 광고 ID 짝 맞추기 (T6.2).
+///
+/// 이 검사가 있는 이유는 실패 모양 때문이다. 앱 ID와 단위 ID 중 **한쪽만**
+/// 바꾸거나 서로 바꿔 넣으면 앱은 멀쩡히 돌고 광고만 안 나온다. 크래시도
+/// 로그도 없고 수익만 0이라, 한참 지나서야 알아차린다. 사람 눈으로 두 파일을
+/// 대조하는 일은 언젠가 빠뜨리므로 여기서 기계가 본다.
+void _idPairing() {
+  group('광고 ID', () {
+    // 매니페스트를 문자열로 읽는다. XML 파서를 붙일 만큼의 일이 아니다.
+    final manifest = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
+
+    /// `ca-app-pub-<게시자>~<앱>` / `ca-app-pub-<게시자>/<단위>`에서 게시자만.
+    String publisherOf(String id) =>
+        RegExp(r'ca-app-pub-(\d+)[~/]').firstMatch(id)!.group(1)!;
+
+    test('앱 ID와 단위 ID의 게시자 번호가 같다', () {
+      final appId = RegExp(
+        r'ca-app-pub-\d+~\d+',
+      ).firstMatch(manifest)?.group(0);
+      expect(appId, isNotNull, reason: '매니페스트에 AdMob 앱 ID가 없다');
+
+      expect(
+        publisherOf(appId!),
+        publisherOf(kInterstitialUnitId),
+        reason:
+            '앱 ID와 광고 단위 ID의 게시자 번호가 다르다. '
+            '한쪽만 바꿨거나 서로 다른 계정의 값을 섞었다',
+      );
+    });
+
+    test('매니페스트에 구글 테스트 앱 ID가 남아 있지 않다', () {
+      // 3940256099942544는 구글이 공개한 테스트 계정이다. 이것으로 출시하면
+      // 광고는 뜨지만 수익이 0이다.
+      expect(
+        manifest,
+        isNot(contains('ca-app-pub-3940256099942544')),
+        reason: '매니페스트가 아직 구글 테스트 앱 ID를 쓴다',
+      );
+    });
+
+    test('실제 단위와 테스트 단위는 서로 다르다', () {
+      expect(kInterstitialUnitId, isNot(kTestInterstitialUnitId));
+      expect(kInterstitialUnitId, startsWith('ca-app-pub-'));
+      expect(kInterstitialUnitId, contains('/'));
+    });
+
+    test('테스트 실행(=릴리스 아님)에서는 테스트 단위를 쓴다', () {
+      // 개발 중에 실제 광고를 받아 자기 광고를 자기가 누르면 계정이 정지된다.
+      // 이 기대가 깨졌다면 kReleaseMode 분기가 사라진 것이다.
+      expect(kActiveInterstitialUnitId, kTestInterstitialUnitId);
     });
   });
 }

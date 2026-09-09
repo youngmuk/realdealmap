@@ -3,9 +3,10 @@
 /// [InterstitialAds] 뒤에 SDK를 두는 이유는 [ads.dart]에 적어 뒀다. 여기가
 /// 그 구현이고, 시점 규칙([AdPolicy])은 이 파일을 전혀 모른다.
 ///
-/// **지금은 구글이 공개한 테스트 단위를 쓴다.** 계정이 아직 없기도 하지만,
-/// 개발 중에 실제 단위를 쓰면 자기 광고를 자기가 눌러 보게 되고 그것은 정책
-/// 위반이다(계정이 정지된다). 계정이 생기면 [kAdUnitId]만 바꾸면 된다.
+/// **쓰는 단위는 빌드 모드가 고른다** — 릴리스는 실제 단위, 그 외는 구글
+/// 테스트 단위다. 개발 중에 실제 단위를 쓰면 자기 광고를 자기가 눌러 보게
+/// 되고 그것은 정책 위반이다(계정이 정지된다). 사람이 기억해서 되돌리는
+/// 규칙은 언젠가 잊히므로, 컴파일 시점에 갈리게 해 둔다.
 library;
 
 import 'dart:async';
@@ -16,10 +17,22 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'ads.dart';
 
 /// 구글이 공개한 안드로이드 전면광고 테스트 단위.
-///
-/// 실제 단위로 바꿀 때 AndroidManifest의 APPLICATION_ID도 함께 바꿔야 한다.
-/// 둘 중 하나만 바꾸면 광고가 조용히 안 나온다.
 const String kTestInterstitialUnitId = 'ca-app-pub-3940256099942544/1033173712';
+
+/// 우리 전면광고 단위. **비밀이 아니다** — APK를 열면 그대로 보인다.
+///
+/// AndroidManifest의 `APPLICATION_ID`와 **짝이다.** 앱 ID는 `~`, 단위 ID는
+/// `/`로 갈린다. 한쪽만 바꾸거나 서로 바꿔 넣으면 광고가 조용히 안 나온다 —
+/// 화면은 멀쩡하고 수익만 0이라 한참 뒤에야 알아차린다.
+const String kInterstitialUnitId = 'ca-app-pub-9171388280674877/2467569550';
+
+/// 이 빌드가 실제로 쓸 단위.
+///
+/// [kReleaseMode]가 컴파일 상수라 이 선택도 컴파일 시점에 끝난다. 디버그·프로파일
+/// 빌드에는 실제 단위가 아예 들어가지 않는다.
+const String kActiveInterstitialUnitId = kReleaseMode
+    ? kInterstitialUnitId
+    : kTestInterstitialUnitId;
 
 /// 미리 받아 두고, 부르면 보여주고, 닫히면 다음 것을 받는다.
 ///
@@ -27,7 +40,7 @@ const String kTestInterstitialUnitId = 'ca-app-pub-3940256099942544/1033173712';
 /// 것처럼 보인다. 안전 전환 지점(상세 닫기·탭 전환)에서 부르는데, 그 순간에
 /// 멈추면 사용자는 자기 조작이 씹혔다고 읽는다.
 class AdMobInterstitial implements InterstitialAds {
-  AdMobInterstitial({this.unitId = kTestInterstitialUnitId});
+  AdMobInterstitial({this.unitId = kActiveInterstitialUnitId});
 
   final String unitId;
 

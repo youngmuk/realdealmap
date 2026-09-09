@@ -58,16 +58,20 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <!-- AdMob 앱 ID. **지금은 구글 테스트 ID다.**
-             실제 단위(admob.dart의 kTestInterstitialUnitId)를 바꿀 때 이것도 함께
-             바꿔야 한다 — 둘 중 하나만 바꾸면 광고가 조용히 안 나온다.
+        <!-- AdMob 앱 ID. admob.dart의 kInterstitialUnitId와 **짝이다.**
+             앱 ID는 `~`, 광고 단위 ID는 `/`로 갈린다. 서로 바꿔 넣거나 한쪽만
+             고치면 광고가 조용히 안 나온다 — 화면은 멀쩡하고 수익만 0이다.
+
+             빌드 모드로 갈리지 않는다. 앱 ID는 식별자일 뿐 광고를 내려주지
+             않으므로 디버그에서도 실제 값을 쓴다. 실제 광고를 내려받는 것은
+             단위 ID 쪽이고, 그쪽만 kReleaseMode로 갈린다.
 
              반드시 <application>의 직계 자식이어야 한다. <activity> 안에 두면
              SDK가 앱 ID를 못 찾아 MobileAdsInitProvider가 앱을 죽인다.
              실기기에서 그렇게 죽여 보고 알았다. -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
+            android:value="ca-app-pub-9171388280674877~3639315696" />
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

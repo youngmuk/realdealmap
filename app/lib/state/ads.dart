@@ -16,9 +16,10 @@ import 'app_state.dart';
 const String _lastShownKey = 'ad.last_at';
 const String _firstRunKey = 'ad.first_run_at';
 
-/// 지금은 광고 단위가 없다. 계정이 생기면 여기만 갈아 끼운다.
+/// 쓰는 단위는 [AdMobInterstitial]의 기본값이 고른다 — 릴리스는 실제 단위,
+/// 그 외는 테스트 단위다. 여기서 정하지 않는 것은 그 규칙이 SDK를 아는 쪽에
+/// 붙어 있어야 해서다.
 final adsProvider = Provider<InterstitialAds>(
-  // 지금은 구글 테스트 단위다. 계정이 생기면 unitId만 바꾸면 된다.
   (ref) => AdMobInterstitial()..preload(),
 );
 
