@@ -26,6 +26,25 @@ class StackSheet extends StatelessWidget {
   bool get approximate =>
       rows.any((r) => r.precision == 'partial' || r.precision == 'umd');
 
+  /// 머리말에 쓸 이름.
+  ///
+  /// 같은 지번에 모인 것이므로 **건물 이름이 곧 이 묶음의 이름**이다.
+  /// 원천이 이름을 안 준 거래가 있어(단독·토지가 특히 그렇다) 없으면
+  /// 법정동과 지번으로 떨어지고, 그것도 없으면 법정동만 쓴다.
+  ///
+  /// 근사 묶음은 건물이 여럿이라 이름을 쓸 수 없다. 법정동을 쓴다.
+  String get title {
+    if (approximate) return rows.first.umdNm;
+    final named = rows.firstWhere(
+      (r) => (r.name ?? '').isNotEmpty,
+      orElse: () => rows.first,
+    );
+    final name = named.name ?? '';
+    if (name.isNotEmpty) return name;
+    final jibun = named.jibun ?? '';
+    return jibun.isEmpty ? named.umdNm : '${named.umdNm} $jibun';
+  }
+
   static Future<void> show(BuildContext context, List<TxRow> rows) =>
       showModalBottomSheet(
         context: context,
@@ -54,41 +73,36 @@ class StackSheet extends StatelessWidget {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
-                  approximate
-                      ? '이 동네의 거래 ${formatCount(rows.length)}건'
-                      : '이 자리의 거래 ${formatCount(rows.length)}건',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: Palette.ink,
-                  ),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Palette.ink,
                 ),
               ),
-            ],
-          ),
-        ),
-        // **왜 겹쳤는지가 두 가지다.** 같은 이유로 뭉뚱그리면 거짓말이 된다 —
-        // 근사 묶음은 지번이 서로 다른데 좌표를 못 만들어 동 중심에 모아 둔
-        // 것이지, 같은 건물이 아니다.
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              approximate
-                  ? '지번을 몰라 법정동 중심에 모아 둔 거래입니다. '
-                        '서로 다른 곳일 수 있고, 실제 위치는 이 자리가 아닙니다'
-                  : '같은 지번이라 지도에서 한 점으로 겹칩니다',
-              style: TextStyle(
-                fontSize: 11.5,
-                color: approximate ? Palette.warn : Palette.ink3,
+              const SizedBox(height: 3),
+              Text(
+                '거래 ${formatCount(rows.length)}건',
+                // 15의 80%. 이름이 주인공이고 건수는 그 딸림이다.
+                style: const TextStyle(fontSize: 12, color: Palette.ink3),
               ),
-            ),
+              // **근사 묶음에서만 한 줄을 더 붙인다.** 정확 좌표 묶음은 정말
+              // 같은 건물이라 설명할 것이 없지만, 이쪽은 지번이 서로 다른데
+              // 좌표를 못 만들어 동 중심에 모아 둔 것이다. 아무 말도 없으면
+              // 이 자리에 있는 건물이라는 뜻이 되어 거짓이 된다.
+              if (approximate) ...[
+                const SizedBox(height: 5),
+                const Text(
+                  '실제 위치는 이 자리가 아니며, 서로 다른 곳일 수 있습니다',
+                  style: TextStyle(fontSize: 11, color: Palette.warn),
+                ),
+              ],
+            ],
           ),
         ),
         const Divider(height: 1, color: Palette.rule),
@@ -124,7 +138,7 @@ class _Row extends StatelessWidget {
     ];
 
     return InkWell(
-      onTap: () => DetailSheet.show(context, tx),
+      onTap: () => DetailSheet.show(context, tx, fromMap: true),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(

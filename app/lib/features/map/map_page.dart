@@ -531,7 +531,7 @@ class _MapPageState extends ConsumerState<MapPage> {
 
     final tx = await ref.read(databaseProvider).byTxId(txId);
     if (tx == null || !mounted) return;
-    await DetailSheet.show(context, tx);
+    await DetailSheet.show(context, tx, fromMap: true);
     // 상세를 닫은 직후는 안전 전환 지점이다 (FR-6). 지도를 만지는 도중이
     // 아니라 손을 뗀 자리라서, 우발적 클릭을 유도하지 않는다.
     if (mounted) ref.adMoment(AdMoment.detailClosed);

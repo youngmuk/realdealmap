@@ -15,32 +15,43 @@ import 'detail_model.dart';
 /// 그래서 **도면이 없으면 그 블록 자체가 없다.** 빈 상자를 남기면 "불러오지 못했다"로
 /// 읽히고, 나중에 도면이 붙어도 화면이 흔들리지 않는다.
 class DetailSheet extends StatelessWidget {
-  const DetailSheet({required this.tx, super.key});
+  const DetailSheet({required this.tx, this.fromMap = false, super.key});
 
   final TxRow tx;
 
-  static Future<void> show(BuildContext context, TxRow tx) =>
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Palette.paper,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+  /// 지도에서 열렸는가. 그러면 "지도에서 보기"를 감춘다.
+  final bool fromMap;
+
+  /// [fromMap]이면 "지도에서 보기"를 감춘다.
+  ///
+  /// 지도에서 마커를 눌러 연 상세다 — 이미 그 자리를 보고 있는데 같은 곳으로
+  /// 데려가겠다고 말하는 것은 아무 일도 안 하겠다는 뜻이다. 목록에서 연
+  /// 상세에서는 여전히 필요하다.
+  static Future<void> show(
+    BuildContext context,
+    TxRow tx, {
+    bool fromMap = false,
+  }) => showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Palette.paper,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (context) {
+      // 앱 전체 배율에 곱한다. 사용자가 시스템 글자 크기를 올려 두었다면
+      // 그 비율은 그대로 살아 있고, 상세만 한 단계 작아진다.
+      final media = MediaQuery.of(context);
+      return MediaQuery(
+        data: media.copyWith(
+          textScaler: TextScaler.linear(
+            media.textScaler.scale(1) * kDetailTextScale,
+          ),
         ),
-        builder: (context) {
-          // 앱 전체 배율에 곱한다. 사용자가 시스템 글자 크기를 올려 두었다면
-          // 그 비율은 그대로 살아 있고, 상세만 한 단계 작아진다.
-          final media = MediaQuery.of(context);
-          return MediaQuery(
-            data: media.copyWith(
-              textScaler: TextScaler.linear(
-                media.textScaler.scale(1) * kDetailTextScale,
-              ),
-            ),
-            child: DetailSheet(tx: tx),
-          );
-        },
+        child: DetailSheet(tx: tx, fromMap: fromMap),
       );
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +81,7 @@ class DetailSheet extends StatelessWidget {
           //
           // **좌표가 없으면 이 줄 자체가 없다.** 못 가는 곳으로 데려가겠다고
           // 말하지 않는다. 원천이 지번을 안 준 거래가 그렇다.
-          if (tx.lat != null && tx.lng != null)
+          if (!fromMap && tx.lat != null && tx.lng != null)
             _ShowOnMap(
               lat: tx.lat!,
               lng: tx.lng!,
