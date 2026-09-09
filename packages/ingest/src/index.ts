@@ -121,3 +121,14 @@ export {
 } from './region-index.js';
 
 export { UtmkError, utmkToWgs84, wgs84ToUtmk } from './utmk.js';
+
+export type { JusoBuilding, JusoIndexReport, JusoTable } from './juso.js';
+export {
+  addJusoRows,
+  JUSO_DELIMITER,
+  jusoBuildingKey,
+  jusoGeoKey,
+  jusoJibun,
+  jusoUmdName,
+  parseJusoRow,
+} from './juso.js';
