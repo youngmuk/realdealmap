@@ -30,35 +30,37 @@ class SettingsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SafeArea(
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+      // 아래는 모두 80%로 줄인 값이다. 글자만 줄이면 여백이 그대로 남아
+      // 화면은 그대로인 채 글씨만 작아진다.
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Center(
             child: Container(
-              width: 36,
-              height: 4,
+              width: 29,
+              height: 3,
               decoration: BoxDecoration(
                 color: Palette.rule,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           const Text(
             '실거래지도',
             style: TextStyle(
-              fontSize: 17,
+              fontSize: 13.6,
               fontWeight: FontWeight.w800,
               color: Palette.ink,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           const _Version(),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           const Divider(height: 1, color: Palette.rule),
-          const SizedBox(height: 6),
+          const SizedBox(height: 5),
           // 고지는 **가장 크게** 둔다. 이 화면에서 사용자가 눌러야 하는 것이
           // 이것 하나뿐이고, 작게 두면 설정 화면으로 옮긴 것이 곧 감춘 것이 된다.
           _Item(
@@ -94,7 +96,7 @@ class _Version extends StatelessWidget {
           : '버전 ${info.version} (${info.buildNumber})';
       return Text(
         text,
-        style: const TextStyle(fontSize: 12.5, color: Palette.ink3),
+        style: const TextStyle(fontSize: 10, color: Palette.ink3),
       );
     },
   );
@@ -111,22 +113,22 @@ class _Item extends StatelessWidget {
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
     child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
+      padding: const EdgeInsets.symmetric(vertical: 11),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: Palette.slate),
-          const SizedBox(width: 10),
+          Icon(icon, size: 14.4, color: Palette.slate),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               label,
               style: const TextStyle(
-                fontSize: 14,
+                fontSize: 11.2,
                 fontWeight: FontWeight.w600,
                 color: Palette.ink,
               ),
             ),
           ),
-          const Icon(Icons.chevron_right, size: 18, color: Palette.ink3),
+          const Icon(Icons.chevron_right, size: 14.4, color: Palette.ink3),
         ],
       ),
     ),

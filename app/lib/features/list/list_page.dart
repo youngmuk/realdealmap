@@ -177,8 +177,10 @@ class _UnmappedBanner extends StatelessWidget {
     if (count == 0) return const SizedBox.shrink();
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      // 좌우 여백은 목록 항목과 맞춰 둔다. 이것까지 줄이면 배지만 안쪽으로
+      // 들어가 보여, 같은 목록의 일부가 아니라 떠 있는 것으로 읽힌다.
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: Palette.warnSoft,
         borderRadius: BorderRadius.circular(6),
@@ -188,7 +190,8 @@ class _UnmappedBanner extends StatelessWidget {
         '지도 미표시 ${formatCount(count)}건 — 좌표를 만들 수 없어 지도에 찍지 못한 '
         '거래입니다. 목록에는 전부 있습니다.',
         style: const TextStyle(
-          fontSize: 12.5,
+          // 12.5의 80%
+          fontSize: 10,
           color: Palette.ink2,
           height: 1.45,
         ),
