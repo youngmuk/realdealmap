@@ -162,19 +162,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     unawaited(ref.read(syncProvider.notifier).syncRegion(region.sggCd));
   }
 
-  /// 왜 위치로 열지 못했는지 한 줄로 말한다.
-  ///
-  /// 조용히 넘어가면 사용자는 앱이 자기 동네를 못 찾은 이유를 알 수 없고,
-  /// 무엇을 하면 되는지도 모른다.
+  /// 왜 위치로 열지 못했는지 한 줄로 말한다. 문구는 [locationProblem]에 있다 —
+  /// 지도의 현재 위치 버튼도 같은 것을 쓴다.
   void _sayWhyNoLocation(LocationOutcome outcome) {
-    final message = switch (outcome) {
-      LocationOutcome.denied => '위치 권한이 없어 지역을 직접 고르셔야 합니다.',
-      LocationOutcome.deniedForever => '위치 권한이 꺼져 있습니다. 설정에서 켜거나 지역을 직접 고르세요.',
-      LocationOutcome.disabled => '기기의 위치 기능이 꺼져 있습니다. 지역을 직접 고르세요.',
-      LocationOutcome.failed => '현재 위치를 확인하지 못했습니다. 지역을 직접 고르세요.',
-      LocationOutcome.ok => '',
-    };
-    if (message.isEmpty) return;
+    final message = locationProblem(outcome);
+    if (message == null) return;
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));

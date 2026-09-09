@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:realdealmap/data/location.dart';
 import 'package:realdealmap/data/sync/region_index.dart';
+import 'package:realdealmap/features/map/locate.dart';
 
 /// 첫 진입에서 좌표를 시군구로 푸는 규칙 (T5.9 · FR-1).
 ///
@@ -29,6 +30,16 @@ RegionSummary _region(
     east: lng + span,
   ),
 );
+
+/// 실기기 없이 위치 결과를 만들어 낸다.
+class _FakeLocation implements LocationSource {
+  const _FakeLocation(this.outcome, [this.fix]);
+  final LocationOutcome outcome;
+  final DeviceFix? fix;
+
+  @override
+  Future<(LocationOutcome, DeviceFix?)> current() async => (outcome, fix);
+}
 
 void main() {
   final gangnam = _region('11680', '서울특별시', '강남구', lat: 37.4979, lng: 127.0276);
@@ -87,4 +98,79 @@ void main() {
       }, isNot(contains(LocationOutcome.ok)));
     });
   });
+
+  /// 지도의 현재 위치 버튼이 무엇을 하는지.
+  ///
+  /// **좌표를 얻은 것과 그 자리에 거래가 있는 것은 다른 일이다.** 둘을 같은
+  /// 실패로 뭉뚱그리면 사용자는 멀쩡한 위치 권한을 다시 뒤지게 된다.
+  group('현재 위치로 가기', () {
+    test('담는 지역이 있으면 좌표와 지역을 함께 준다', () async {
+      final result = await locateHere(
+        const _FakeLocation(LocationOutcome.ok, DeviceFix(37.50, 127.03)),
+        index,
+      );
+
+      expect(result, isA<Located>());
+      final located = result as Located;
+      expect(located.lat, 37.50);
+      expect(located.lng, 127.03);
+      expect(located.region?.sggCd, '11680');
+    });
+
+    // 지역이 없어도 좌표는 유효하다. 지도는 옮겨 가야 한다.
+    test('배포된 지역이 없어도 좌표는 준다', () async {
+      final result = await locateHere(
+        const _FakeLocation(LocationOutcome.ok, DeviceFix(20.0, 150.0)),
+        index,
+      );
+
+      expect(result, isA<Located>());
+      expect((result as Located).region, isNull);
+    });
+
+    test('좌표를 못 얻으면 사유를 그대로 넘긴다', () async {
+      final result = await locateHere(
+        const _FakeLocation(LocationOutcome.deniedForever),
+        index,
+      );
+
+      expect(
+        (result as LocateFailed).outcome,
+        LocationOutcome.deniedForever,
+      );
+    });
+
+    // 좌표를 시군구로 풀 근거가 없으면 권한 창부터 띄우지 않는다.
+    test('색인이 없으면 위치를 묻지도 않는다', () async {
+      var asked = false;
+      final source = _SpyLocation(() => asked = true);
+
+      final result = await locateHere(source, RegionIndex(const []));
+
+      expect(result, isA<LocateNoIndex>());
+      expect(asked, isFalse);
+    });
+
+    test('사유마다 다른 안내 문구가 나온다', () {
+      final messages = {
+        for (final o in LocationOutcome.values) o: locationProblem(o),
+      };
+
+      expect(messages[LocationOutcome.ok], isNull);
+      final said = messages.values.nonNulls.toList();
+      expect(said, hasLength(4));
+      expect(said.toSet(), hasLength(4));
+    });
+  });
+}
+
+class _SpyLocation implements LocationSource {
+  _SpyLocation(this.onAsk);
+  final void Function() onAsk;
+
+  @override
+  Future<(LocationOutcome, DeviceFix?)> current() async {
+    onAsk();
+    return (LocationOutcome.failed, null);
+  }
 }

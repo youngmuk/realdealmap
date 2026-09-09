@@ -7,6 +7,7 @@ import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 
 import '../../config.dart';
 import '../../data/db/database.dart';
+import '../../data/location.dart';
 import '../../data/sync/region_index.dart' as idx;
 import '../../format.dart';
 import '../../state/ads.dart';
@@ -17,6 +18,7 @@ import '../ads/ad_policy.dart';
 import '../detail/detail_sheet.dart';
 import 'cluster.dart';
 import 'cluster_icons.dart';
+import 'locate.dart';
 import 'map_focus.dart';
 import 'stack_sheet.dart';
 import 'style_watchdog.dart';
@@ -81,6 +83,11 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   /// 필터가 연속으로 바뀔 때(가격 슬라이더) 매번 다시 그리지 않는다
   Timer? _filterDebounce;
+
+  /// 위치를 찾는 중인가. 버튼을 연타해도 한 번만 돈다 —
+  /// 위치 조회는 최대 8초가 걸릴 수 있고, 그동안 아무 표시가 없으면
+  /// 사용자는 눌리지 않은 줄 알고 다시 누른다.
+  bool _locating = false;
 
   /// 저장된 카메라가 없던 첫 진입인가. 있으면 사용자가 보던 자리를 지킨다 —
   /// 위치를 잡았다고 보던 화면을 빼앗지 않는다.
@@ -645,6 +652,58 @@ class _MapPageState extends ConsumerState<MapPage> {
     if (mounted) ref.adMoment(AdMoment.detailClosed);
   }
 
+  /// 지금 있는 곳으로 데려간다.
+  ///
+  /// **시군구 중심점이 아니라 실제 좌표로 간다.** 지역만 맞추고 중심점을 열면
+  /// 사용자는 몇 킬로미터 떨어진 곳을 "현재 위치"로 보게 된다.
+  ///
+  /// 다른 시군구에 와 있으면 지역도 함께 바꾼다. 지역을 안 바꾸면 카메라만
+  /// 옮겨 가고 그 자리에 찍을 거래가 없다 — 마커 조회가 고른 지역으로
+  /// 묶여 있기 때문이다(`_syncViewport`).
+  Future<void> _goToMyLocation() async {
+    if (_locating) return;
+    setState(() => _locating = true);
+    try {
+      final result = await locateHere(
+        ref.read(locationProvider),
+        ref.read(regionIndexProvider).value,
+      );
+      if (!mounted) return;
+
+      switch (result) {
+        case LocateNoIndex():
+          _say('지역 목록을 아직 받지 못했습니다. 잠시 뒤 다시 눌러 주세요.');
+        case LocateFailed(:final outcome):
+          final message = locationProblem(outcome);
+          if (message != null) _say(message);
+        case Located(:final lat, :final lng, :final region):
+          if (region != null && region.sggCd != ref.read(selectedRegionProvider)) {
+            ref
+                .read(selectedRegionProvider.notifier)
+                .select(region.sggCd, name: region.displayName);
+            unawaited(
+              ref.read(syncProvider.notifier).syncRegion(region.sggCd),
+            );
+          }
+          // **지역 이동 신호(regionFocusProvider)를 쓰지 않는다.** 그쪽은
+          // 시군구 중심점으로 가는 길이라, 여기서 부르면 방금 맞춘 좌표를
+          // 곧바로 덮어쓴다.
+          await _controller?.animateCamera(
+            ml.CameraUpdate.newLatLngZoom(ml.LatLng(lat, lng), kFocusZoom),
+          );
+          if (region == null && mounted) {
+            _say('현재 위치 근처에는 아직 배포된 지역이 없습니다.');
+          }
+      }
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
+  void _say(String message) => ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(message)));
+
   /// 상세창이 지목한 좌표로 데려간다.
   ///
   /// 확대 수준을 [kFocusZoom]으로 **고정한다.** 지금 축척을 유지하면, 시·군 전체를
@@ -777,7 +836,30 @@ class _MapPageState extends ConsumerState<MapPage> {
         // 떠 있는 상자였을 때는 그 아래로 지도가 비쳐, 범례와 아래 메뉴 사이에
         // 쓰이지도 않는 지도 띠가 남았다. 붙여 두면 그 띠가 지도로 돌아간다.
         // 참고용 고지는 설정 화면으로 옮겼으므로 더 이상 아래를 비워 둘 이유도 없다.
-        const Positioned(left: 0, right: 0, bottom: 0, child: _Legend()),
+        //
+        // 현재 위치 버튼은 범례 **바로 위**에 얹는다. 범례 높이는 글자 배율에
+        // 따라 변해서 숫자로 띄울 수 없다 — 한 세로줄에 담아 서로를 밀게 한다.
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 12, bottom: 10),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: _LocateButton(
+                    busy: _locating,
+                    onTap: () => unawaited(_goToMyLocation()),
+                  ),
+                ),
+              ),
+              const _Legend(),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -948,6 +1030,41 @@ class _Legend extends StatelessWidget {
           style: TextStyle(fontSize: 5.88, color: Palette.warn),
         ),
       ],
+    ),
+  );
+}
+
+/// 지금 있는 곳으로 가는 버튼.
+///
+/// 찾는 동안 아이콘 대신 동그라미를 돌린다. 위치 조회는 실내에서 8초까지
+/// 걸리는데, 그동안 아무 변화가 없으면 사용자는 눌리지 않은 줄 안다.
+class _LocateButton extends StatelessWidget {
+  const _LocateButton({required this.busy, required this.onTap});
+
+  final bool busy;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Palette.surface,
+    shape: const CircleBorder(side: BorderSide(color: Palette.rule)),
+    elevation: 2,
+    child: InkWell(
+      onTap: busy ? null : onTap,
+      customBorder: const CircleBorder(),
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.my_location, size: 22, color: Palette.slate),
+        ),
+      ),
     ),
   );
 }

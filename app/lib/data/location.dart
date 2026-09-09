@@ -28,6 +28,22 @@ enum LocationOutcome {
   failed,
 }
 
+/// 왜 위치를 못 얻었는지 한 줄로 말한다. 얻었으면 null이다.
+///
+/// **문구를 여기 두는 이유**는 부르는 자리가 둘이기 때문이다 — 첫 실행의 자동
+/// 열기(app.dart)와 지도의 현재 위치 버튼. 각자 적어 두면 한쪽만 고쳐져
+/// 같은 상황에 다른 안내가 나간다.
+///
+/// 조용히 넘어가지 않는다. 아무 말이 없으면 사용자는 앱이 자기 동네를 못 찾은
+/// 이유도, 무엇을 하면 되는지도 알 수 없다.
+String? locationProblem(LocationOutcome outcome) => switch (outcome) {
+  LocationOutcome.denied => '위치 권한이 없어 지역을 직접 고르셔야 합니다.',
+  LocationOutcome.deniedForever => '위치 권한이 꺼져 있습니다. 설정에서 켜거나 지역을 직접 고르세요.',
+  LocationOutcome.disabled => '기기의 위치 기능이 꺼져 있습니다. 지역을 직접 고르세요.',
+  LocationOutcome.failed => '현재 위치를 확인하지 못했습니다. 지역을 직접 고르세요.',
+  LocationOutcome.ok => null,
+};
+
 class DeviceFix {
   const DeviceFix(this.lat, this.lng);
   final double lat;
