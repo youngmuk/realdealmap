@@ -273,13 +273,34 @@ class _MapPageState extends ConsumerState<MapPage> {
           // 글꼴 이름은 R2에 올린 폴더 이름 그대로여야 한다. 표현식이 아니라
           // 문자열 목록이라야 네이티브가 읽는다.
           textFont: ['NotoSansKR-Medium'],
-          textSize: 11,
+          textSize: 22,
           textAnchor: 'top',
-          // 점 아래로 내린다. em 단위라 글자 크기를 바꾸면 함께 움직인다.
-          textOffset: [0, 1.4],
+          // 점 아래로 내린다. **묶음 크기를 따라간다.**
+          //
+          // 한 값으로 두면 안 된다. 아이콘 반지름이 건수에 따라 9~21px로
+          // 변하는데(cluster_icons.dart), 작은 점에 맞추면 큰 묶음이 글자를
+          // 깔고 앉고 큰 묶음에 맞추면 낱개 점이 글자와 동떨어진다.
+          // 실기기에서 앞엣것을 봤다 — 글자가 마커 위에 겹쳐 둘 다 안 읽혔다.
+          //
+          // em 단위라 글자 크기 22를 곱한 값이 실제 간격이다: 16 · 19 · 23 · 27px.
+          textOffset: [
+            0,
+            [
+              'step',
+              ['get', 'count'],
+              0.72,
+              10,
+              0.85,
+              40,
+              1.05,
+              120,
+              1.25,
+            ],
+          ],
           textColor: '#2B2721',
           textHaloColor: '#FFFFFF',
-          textHaloWidth: 1.5,
+          // 글자가 커진 만큼 테두리도 키운다. 얇으면 지도 선 위에서 글자가 갈린다.
+          textHaloWidth: 2,
           // **겹치면 지운다.** 아파트 단지처럼 이름이 몰린 곳에서 전부 그리면
           // 글자끼리 포개져 어느 것도 못 읽는다. 큰 묶음을 먼저 놓아
           // 남는 자리를 거래가 많은 쪽이 갖게 한다.
@@ -751,17 +772,12 @@ class _MapPageState extends ConsumerState<MapPage> {
               onList: widget.onShowList,
             ),
           ),
-        // 오른쪽 여백을 함께 잡아 글자 배율이 커져도 범례가 화면을 넘지 않는다.
+        // **화면 폭을 꽉 채워 바닥에 붙인다.**
         //
-        // 아래를 넉넉히 띄우는 것은 **참고용 고지가 화면 맨 아래 가운데에**
-        // 떠 있기 때문이다(app.dart). 12로 두면 범례가 그 위에 올라타
-        // 두 글자가 겹쳐 읽히지 않는다 — 실기기에서 그렇게 나왔다.
-        Positioned(
-          left: 12,
-          right: 12,
-          bottom: 34,
-          child: Align(alignment: Alignment.bottomLeft, child: const _Legend()),
-        ),
+        // 떠 있는 상자였을 때는 그 아래로 지도가 비쳐, 범례와 아래 메뉴 사이에
+        // 쓰이지도 않는 지도 띠가 남았다. 붙여 두면 그 띠가 지도로 돌아간다.
+        // 참고용 고지는 설정 화면으로 옮겼으므로 더 이상 아래를 비워 둘 이유도 없다.
+        const Positioned(left: 0, right: 0, bottom: 0, child: _Legend()),
       ],
     );
   }
@@ -888,17 +904,24 @@ class _Legend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-    decoration: BoxDecoration(
-      color: Palette.surface.withValues(alpha: 0.94),
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: Palette.rule),
+    width: double.infinity,
+    padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
+    decoration: const BoxDecoration(
+      color: Palette.surface,
+      // 위쪽 선 하나만 남긴다. 화면 폭을 꽉 채우고 바닥에 붙었으므로
+      // 나머지 세 변은 그릴 자리가 없다.
+      border: Border(top: BorderSide(color: Palette.rule)),
     ),
     child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      // **stretch여야 한다.** start면 Wrap이 제 내용만큼만 넓어져
+      // spaceBetween이 나눌 여백 자체가 없다 — 조용히 왼쪽에 몰린다.
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
+        // 폭이 넓어졌으니 다섯 유형을 한 줄에 고루 편다. 글자 배율이 커져
+        // 한 줄에 못 담기면 알아서 다음 줄로 넘어간다.
         Wrap(
+          alignment: WrapAlignment.spaceBetween,
           spacing: 10,
           runSpacing: 4,
           children: [
@@ -920,9 +943,9 @@ class _Legend extends StatelessWidget {
         const SizedBox(height: 5),
         const Text(
           '옅은 갈색은 지번을 몰라 법정동 중심에 모은 것',
-          // 10.5의 70%. 설명이지 읽히는 것이 목적이 아니라, 기호를 처음 본
+          // 7.35의 80%. 설명이지 읽히는 것이 목적이 아니라, 기호를 처음 본
           // 사람이 한 번 찾아 읽으면 되는 줄이다.
-          style: TextStyle(fontSize: 7.35, color: Palette.warn),
+          style: TextStyle(fontSize: 5.88, color: Palette.warn),
         ),
       ],
     ),
@@ -944,7 +967,8 @@ class _Swatch extends StatelessWidget {
         decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       ),
       const SizedBox(width: 4),
-      Text(label, style: const TextStyle(fontSize: 10.5, color: Palette.ink2)),
+      // 10.5의 80%
+      Text(label, style: const TextStyle(fontSize: 8.4, color: Palette.ink2)),
     ],
   );
 }
