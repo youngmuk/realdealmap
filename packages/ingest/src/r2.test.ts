@@ -7,9 +7,9 @@ import {
   configFromEnv,
   R2Client,
   R2ConfigError,
+  R2Error,
   signRequest,
   type R2Config,
-  type R2Error,
 } from './r2.js';
 
 const CONFIG: R2Config = {
@@ -147,6 +147,32 @@ describe('객체 연산', () => {
     expect(call?.headers['content-encoding']).toBe('gzip');
     expect(call?.headers['cache-control']).toBe('public, max-age=31536000, immutable');
     expect(call?.headers['content-length']).toBe('5');
+  });
+
+  test('cache-control만 바꿀 때 본문을 다시 보내지 않는다', async () => {
+    const { s, client } = clientWith();
+    await client.setCacheControl(
+      'v1/basemap/korea.pmtiles',
+      'public, max-age=31536000, immutable',
+      'application/octet-stream',
+    );
+
+    const [call] = s.calls;
+    expect(call?.method).toBe('PUT');
+    // 729 MiB를 다시 밀어 넣지 않는다는 것이 이 기능의 전부다.
+    expect(call?.headers['content-length']).toBeUndefined();
+    expect(call?.headers['x-amz-copy-source']).toBe(
+      '/realdealmap-data/v1/basemap/korea.pmtiles',
+    );
+    expect(call?.headers['x-amz-metadata-directive']).toBe('REPLACE');
+    expect(call?.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+    // REPLACE는 메타데이터를 통째로 갈아 끼운다. 타입을 안 주면 원래 것이 사라진다.
+    expect(call?.headers['content-type']).toBe('application/octet-stream');
+  });
+
+  test('복사가 실패하면 던진다', async () => {
+    const { client } = clientWith([() => ok('<Error><Code>AccessDenied</Code></Error>', 403)]);
+    await expect(client.setCacheControl('k', 'no-store', 'text/plain')).rejects.toThrow(R2Error);
   });
 
   test('GET이 본문을 돌려준다', async () => {

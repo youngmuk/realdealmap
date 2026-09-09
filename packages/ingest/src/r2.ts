@@ -228,6 +228,35 @@ export class R2Client {
     return true;
   }
 
+  /**
+   * 이미 올라간 객체의 `cache-control`만 바꾼다. **본문은 다시 올리지 않는다.**
+   *
+   * 자기 자신으로 CopyObject 하면서 메타데이터를 갈아 끼우는 방식이다.
+   * 729 MiB짜리 배경지도의 헤더 하나를 고치자고 그 바이트를 다시 밀어 넣을
+   * 이유가 없다. 복사는 R2 안에서 일어나므로 송신도 없다.
+   *
+   * 실패하면 원본이 그대로 남는다 — 덮어쓰기가 원자적이라 반쯤 바뀐 상태가 없다.
+   *
+   * `content-type`을 같이 받는 것은 `REPLACE`가 **메타데이터를 통째로 갈아 끼우기**
+   * 때문이다. 빠뜨리면 원래 타입이 사라지고 기본값이 붙는다.
+   */
+  async setCacheControl(key: string, cacheControl: string, contentType: string): Promise<void> {
+    const res = await this.#send('PUT', key, undefined, {
+      'x-amz-copy-source': `/${this.#config.bucket}/${key}`,
+      'x-amz-metadata-directive': 'REPLACE',
+      'cache-control': cacheControl,
+      'content-type': contentType,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new R2Error(
+        `COPY ${key} 실패 (${res.status})`,
+        res.status,
+        errorCodeOf(text, res.status),
+      );
+    }
+  }
+
   async delete(key: string): Promise<void> {
     const res = await this.#send('DELETE', key);
     // S3는 없는 키를 지워도 204를 준다.

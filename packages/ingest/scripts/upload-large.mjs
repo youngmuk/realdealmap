@@ -1,7 +1,7 @@
 /**
  * 큰 파일을 R2에 멀티파트로 올린다.
  *
- *   node packages/ingest/scripts/upload-large.mjs <로컬파일> <키> [--content-type=...]
+ *   node packages/ingest/scripts/upload-large.mjs <로컬파일> <키> [--content-type=...] [--immutable]
  *
  * **왜 따로 필요한가.** `R2Client.put`은 본문을 통째로 메모리에 들고 한 번에 보낸다.
  * 청크(수 MB)에는 맞지만 배경지도(수백 MB)에는 맞지 않는다. `wrangler r2 object put`은
@@ -59,8 +59,16 @@ const main = async () => {
   const args = process.argv.slice(2);
   const typeArg = args.find((a) => a.startsWith('--content-type='));
   const contentType = typeArg ? typeArg.slice('--content-type='.length) : 'application/octet-stream';
+  // 이름에 날짜나 해시가 박힌 자산만 immutable로 둔다.
+  //
+  // **배경지도가 이것을 놓치고 있었다.** 729 MiB PMTiles에 cache-control이 없어서
+  // 지도를 볼 때마다 타일 조각을 다시 검증했다. R2는 그 검증 하나하나가 Class B
+  // 요청이고, 무료 한도(월 1,000만)를 가장 빨리 쓰는 것이 바로 그것이다.
+  const immutable = args.includes('--immutable');
   const [file, key] = args.filter((a) => !a.startsWith('--'));
-  if (!file || !key) throw new Error('쓰임: upload-large.mjs <로컬파일> <키> [--content-type=...]');
+  if (!file || !key) {
+    throw new Error('쓰임: upload-large.mjs <로컬파일> <키> [--content-type=...] [--immutable]');
+  }
 
   const config = configFromEnv();
   const total = statSync(file).size;
@@ -69,6 +77,7 @@ const main = async () => {
 
   const started = await send(config, 'POST', key, 'uploads=', undefined, {
     'content-type': contentType,
+    ...(immutable ? { 'cache-control': 'public, max-age=31536000, immutable' } : {}),
   });
   const uploadId = /<UploadId>([^<]*)<\/UploadId>/.exec(started)?.[1];
   if (!uploadId) throw new Error('UploadId를 받지 못했습니다');

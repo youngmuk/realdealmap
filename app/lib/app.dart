@@ -69,8 +69,26 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     ref.read(adsControllerProvider);
     // 켠 직후에도 한 번 불리지만 [kAdLaunchGrace]가 막는다.
     _lifecycle = AppLifecycleListener(
-      onResume: () => ref.adMoment(AdMoment.resumed),
+      onResume: () {
+        ref.adMoment(AdMoment.resumed);
+        _syncOnResume();
+      },
     );
+  }
+
+  /// 앱으로 돌아왔을 때 다시 맞춘다.
+  ///
+  /// 동기화는 앱을 켤 때와 지역을 바꿀 때만 걸렸다. 그래서 앱을 켜 둔 채
+  /// 하루를 두면 **화면의 기준 시각이 어제 것인 채로 남는다.** 실거래가는
+  /// 값이 시각에 매인 데이터라 그것으로는 쓸모가 없다.
+  ///
+  /// 매번 원천을 부르는 것이 아니다. 매니페스트 하나(수십 KB)를 받아
+  /// 바뀐 청크가 있을 때만 내려받고, 갱신 요청은 TTL을 넘겼을 때만 나간다.
+  /// 판단은 [SyncController]가 하므로 여기서는 부르기만 한다.
+  void _syncOnResume() {
+    final region = ref.read(selectedRegionProvider);
+    if (region == null) return;
+    unawaited(ref.read(syncProvider.notifier).syncRegion(region));
   }
 
   @override
