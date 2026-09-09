@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/db/database.dart';
 import '../../theme.dart';
+import '../map/map_focus.dart';
 import 'detail_model.dart';
-import 'mini_map_view.dart';
 
 /// 상세 정보 시트 (T5.6 · FR-3).
 ///
@@ -54,22 +55,26 @@ class DetailSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 10, 20, 40),
         children: [
           const _Grip(),
+          _Header(detail.header),
           // 도면 블록 자리 (D-1~D-4).
           //
           // 도면 자체는 국토부 실거래가에 없어서 건축HUB가 필요하고(D-1~D-3),
-          // 그것은 별도 활용신청이 선행이다. 명세의 D-4가 "도면이 없을 때 그
-          // 자리를 지도 미니뷰로 대체할지"를 물었고, **대체하기로 했다** —
-          // 지금 가진 좌표로 "여기가 어디인가"에는 답할 수 있다.
+          // 그것은 별도 활용신청이 선행이다. 명세의 D-4는 "도면이 없을 때 그
+          // 자리를 지도로 대체할지"를 물었고, **지도로 데려가는 쪽을 골랐다.**
           //
-          // **좌표가 없으면 블록 자체가 없다.** 빈 상자를 남기면 "불러오지
-          // 못했다"로 읽힌다. 원천이 지번을 안 준 거래가 그렇다.
+          // 여기에 지도 그림을 붙이려면 타일을 받아야 하는데, 우리 배경지도는
+          // 벡터(PMTiles)라 이미지로 못 붙이고, 렌더러를 하나 더 띄우면 그래픽
+          // 메모리가 두 배가 된다(지도 하나가 139 MB · 실측). 예전에는 OSM 타일을
+          // 직접 받아 붙였는데 **OSM 이용정책이 배포 앱의 트래픽을 허용하지 않는다.**
+          //
+          // **좌표가 없으면 이 줄 자체가 없다.** 못 가는 곳으로 데려가겠다고
+          // 말하지 않는다. 원천이 지번을 안 준 거래가 그렇다.
           if (tx.lat != null && tx.lng != null)
-            MiniMapView(
+            _ShowOnMap(
               lat: tx.lat!,
               lng: tx.lng!,
               approximate: detail.header.approximate,
             ),
-          _Header(detail.header),
           for (final section in detail.sections) ...[
             SectionLabel(section.title),
             _Table(section.rows),
@@ -265,4 +270,53 @@ class _RawBlock extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "지도에서 보기". 상세창을 닫고 지도 탭을 그 좌표로 보낸다.
+///
+/// 근사 좌표면 그렇다고 미리 말한다. 누르고 나서 핀이 엉뚱한 데 있으면
+/// 사용자는 지도가 틀렸다고 읽는다 — 틀린 것은 지도가 아니라 원천의 지번이다.
+class _ShowOnMap extends ConsumerWidget {
+  const _ShowOnMap({
+    required this.lat,
+    required this.lng,
+    required this.approximate,
+  });
+
+  final double lat;
+  final double lng;
+  final bool approximate;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Padding(
+    padding: const EdgeInsets.only(bottom: 18),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () {
+              ref.read(mapFocusProvider.notifier).request(lat, lng);
+              Navigator.of(context).pop();
+            },
+            icon: const Icon(Icons.place_outlined, size: 18),
+            label: const Text('지도에서 보기'),
+            style: OutlinedButton.styleFrom(
+              // 글자 배율이 2배인 앱이다. 높이를 고정하면 글자가 잘린다.
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+          ),
+        ),
+        if (approximate)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '지번을 몰라 법정동 근처로만 찍습니다',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
+      ],
+    ),
+  );
 }

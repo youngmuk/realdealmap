@@ -30,7 +30,7 @@
       아무도 이 결정을 다시 보지 않는다.
     -->
     <application
-        android:label="실거래가 지도"
+        android:label="실거래지도"
         android:name="${applicationName}"
         android:allowBackup="false"
         android:fullBackupContent="false"

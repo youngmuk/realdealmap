@@ -12,6 +12,7 @@ import 'features/about/about_sheet.dart';
 import 'features/ads/ad_policy.dart';
 import 'features/filter/filter_sheet.dart';
 import 'features/list/list_page.dart';
+import 'features/map/map_focus.dart';
 import 'features/map/map_page.dart';
 import 'features/region/region_picker.dart';
 import 'state/ads.dart';
@@ -23,7 +24,7 @@ class RealDealMapApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: '실거래가 지도',
+    title: '실거래지도',
     debugShowCheckedModeBanner: false,
     theme: buildTheme(),
     builder: (context, child) {
@@ -185,6 +186,16 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    // 상세창에서 "지도에서 보기"를 눌렀다. 카메라는 지도 화면이 스스로 옮기고,
+    // 여기서는 탭만 바꾼다 — 목록 탭에서 눌렀다면 지도가 안 보이는 채로
+    // 카메라만 움직여 아무 일도 안 일어난 것처럼 보인다.
+    //
+    // 광고 시점으로는 세지 않는다. 지도로 데려가 달라고 눌렀는데 전면광고가
+    // 뜨면, 사용자가 부른 것은 지도지 광고가 아니다.
+    ref.listen(mapFocusProvider, (_, next) {
+      if (next != null && _tab != 0) setState(() => _tab = 0);
+    });
+
     // 색인이 늦게 도착하면 그때 위치로 열어 본다.
     ref.listen(regionIndexProvider, (_, next) {
       if (next.value == null || next.value!.isEmpty) return;

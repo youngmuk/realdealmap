@@ -8,7 +8,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:realdealmap/config.dart';
 import 'package:realdealmap/data/db/database.dart';
 import 'package:realdealmap/features/detail/detail_sheet.dart';
-import 'package:realdealmap/features/detail/mini_map_view.dart';
 import 'package:realdealmap/features/list/list_page.dart';
 import 'package:realdealmap/state/app_state.dart';
 import 'package:realdealmap/state/filters.dart';
@@ -350,37 +349,37 @@ void main() {
       expect(find.textContaining('근사'), findsWidgets);
     });
 
-    // 도면 블록 자리를 지도 미니뷰로 채웠다(D-4). 도면 자체는 건축HUB가
-    // 필요해 아직 없다.
-    testWidgets('좌표가 있으면 지도 미니뷰를 얹는다', (tester) async {
+    // 도면 블록 자리(D-4)는 지도로 데려가는 버튼이다. 예전에는 여기에 OSM
+    // 타일을 직접 받아 그림을 붙였는데, OSM 이용정책이 배포 앱의 트래픽을
+    // 허용하지 않는다.
+    testWidgets('좌표가 있으면 지도로 데려가는 길을 준다', (tester) async {
       final tx = await insert(_tx('a', lat: 37.5, lng: 127.0));
 
       await pumpDetail(tester, tx);
 
-      expect(find.byType(MiniMapView), findsOneWidget);
+      expect(find.text('지도에서 보기'), findsOneWidget);
     });
 
-    // 빈 상자를 남기면 "불러오지 못했다"로 읽힌다. 블록 자체가 없어야 한다.
-    testWidgets('좌표가 없으면 미니뷰 자리를 아예 두지 않는다', (tester) async {
+    // 못 가는 곳으로 데려가겠다고 말하지 않는다. 원천이 지번을 안 준 거래다.
+    testWidgets('좌표가 없으면 그 길을 아예 두지 않는다', (tester) async {
       final tx = await insert(_tx('a'));
 
       await pumpDetail(tester, tx);
 
-      expect(find.byType(MiniMapView), findsNothing);
+      expect(find.text('지도에서 보기'), findsNothing);
     });
 
-    // 근사 좌표에 뾰족한 핀을 찍으면 "그 건물"이라고 말하는 것이 된다.
-    // 실측으로 226~582 m가 빗나간다.
-    testWidgets('근사 좌표는 미니뷰에서도 근사라고 말한다', (tester) async {
+    // 누르고 나서 핀이 엉뚱한 데 있으면 지도가 틀렸다고 읽는다.
+    // 틀린 것은 지도가 아니라 원천의 지번이다 — 누르기 전에 말한다.
+    testWidgets('근사 좌표는 데려가기 전에 근사라고 말한다', (tester) async {
       final tx = await insert(
         _tx('a', lat: 37.5, lng: 127.0, precision: 'umd'),
       );
 
       await pumpDetail(tester, tx);
 
-      final view = tester.widget<MiniMapView>(find.byType(MiniMapView));
-      expect(view.approximate, isTrue);
-      expect(find.textContaining('법정동 근사 위치'), findsOneWidget);
+      expect(find.text('지도에서 보기'), findsOneWidget);
+      expect(find.textContaining('법정동 근처로만'), findsOneWidget);
     });
 
     testWidgets('해제된 거래는 금액에 취소선을 긋는다', (tester) async {

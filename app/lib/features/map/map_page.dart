@@ -17,7 +17,14 @@ import '../ads/ad_policy.dart';
 import '../detail/detail_sheet.dart';
 import 'cluster.dart';
 import 'cluster_icons.dart';
+import 'map_focus.dart';
 import 'style_watchdog.dart';
+
+/// 상세창에서 데려올 때의 확대 수준.
+///
+/// 클러스터가 풀리는 지점([kClusterMaxZoom])과 같게 둔다. 그보다 낮으면 데려간
+/// 자리에 묶음 하나만 보이고, 사용자는 자기가 누른 거래를 못 찾는다.
+const double kFocusZoom = kClusterMaxZoom;
 
 /// 지도 화면 (T5.4 · T5.5).
 ///
@@ -517,6 +524,22 @@ class _MapPageState extends ConsumerState<MapPage> {
     if (mounted) ref.adMoment(AdMoment.detailClosed);
   }
 
+  /// 상세창이 지목한 좌표로 데려간다.
+  ///
+  /// 확대 수준을 [kFocusZoom]으로 **고정한다.** 지금 축척을 유지하면, 시·군 전체를
+  /// 보고 있다가 누른 사람은 화면이 조금 움직이고 마는 것을 본다 — 데려갔다는
+  /// 사실 자체가 전달되지 않는다.
+  Future<void> _focusOn(MapFocus focus) async {
+    final controller = _controller;
+    if (controller == null) return;
+    await controller.animateCamera(
+      ml.CameraUpdate.newLatLngZoom(
+        ml.LatLng(focus.lat, focus.lng),
+        kFocusZoom,
+      ),
+    );
+  }
+
   Future<void> _zoomInto(Map<Object?, Object?> properties) async {
     final controller = _controller;
     final lat = properties['lat'];
@@ -542,6 +565,13 @@ class _MapPageState extends ConsumerState<MapPage> {
     // "목록에는 있는데 지도에 없다"가 좌표 때문임이 분명해진다.
     // 가격 슬라이더를 끌면 구간마다 새 필터가 나온다. 그때마다 DB를 다시 읽고
     // 소스를 갈아 끼우면 손가락보다 화면이 늦는다.
+    // 상세창의 "지도에서 보기". 탭 전환은 앱 껍데기가 하고, 여기서는 카메라만
+    // 옮긴다. 둘이 같은 요청을 각자 듣는다 — 콜백을 목록 → 상세로 꿰지 않는 이유는
+    // `map_focus.dart`에 적어 두었다.
+    ref.listen(mapFocusProvider, (_, next) {
+      if (next != null) unawaited(_focusOn(next));
+    });
+
     ref.listen(filterProvider, (_, _) {
       _filterDebounce?.cancel();
       _filterDebounce = Timer(kViewportDebounce, () => _syncViewport());

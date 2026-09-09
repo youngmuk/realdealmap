@@ -28,7 +28,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.realdealmap.realdealmap"
+        applicationId = "com.jsmgames.realdealmap"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
