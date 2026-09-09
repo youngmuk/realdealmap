@@ -59,6 +59,12 @@ const flattenFont = (value) => {
  * 여기서는 줌에 따라 가늘게 시작해 굵어지게 한다.
  *
  * 채우기 **바로 위**에 넣는다. 더 위에 두면 도로와 라벨을 가린다.
+ *
+ * **두 번째 회차.** 처음 넣은 값(#9E9689 · 0.3px · 불투명도 0.35)은 실기기에서
+ * 보이지 않았다. 채우기가 `#cccccc` 0.5라 선과의 명도 차가 거의 없었고, 굵기도
+ * 3배 화면에서 한 기기 픽셀에 못 미쳤다. 색을 더 어둡게, 굵기와 불투명도를
+ * 올린다. 건물이 맞닿은 동네에서 한 채를 가려내는 것이 목적이므로
+ * **선이 채우기보다 확실히 진해야 한다.**
  */
 const addBuildingOutline = (layers) => {
   const at = layers.findIndex((l) => l.id === 'buildings');
@@ -72,13 +78,14 @@ const addBuildingOutline = (layers) => {
     source: 'protomaps',
     'source-layer': 'buildings',
     filter: layers[at].filter,
-    // 건물 타일 자체가 z11부터다. 그보다 낮은 배율에서는 건물이 점만 해서
-    // 선을 그어도 얼룩으로만 보인다.
+    // 건물 타일은 z11부터 있지만 **z14까지는 사실상 비어 있다.** 실측:
+    // 광진구 군자동 한 타일에 z14는 건물 26개, z15는 2,290개다(강남·부산도 같은
+    // 양상). 낮은 배율에서 건물이 안 보이는 것은 스타일이 아니라 타일 쪽이다.
     minzoom: 15,
     paint: {
-      'line-color': '#9E9689',
-      'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.3, 17, 0.7, 20, 1.2],
-      'line-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0.35, 17, 0.8],
+      'line-color': '#7A7166',
+      'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.6, 16, 0.9, 18, 1.4, 20, 2.2],
+      'line-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0.75, 16, 0.95],
     },
   });
   return 1;

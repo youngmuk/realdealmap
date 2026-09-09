@@ -24,6 +24,7 @@ class MapFeature {
     required this.approximate,
     this.txId,
     this.sameSpot = false,
+    this.label,
   });
 
   final double lat;
@@ -47,6 +48,16 @@ class MapFeature {
   /// 이러면 아무리 확대해도 갈라지지 않는다. 확대로 파고드는 대신 목록을
   /// 열어야 한다는 표시다. 낱개일 때는 의미가 없어 false다.
   final bool sameSpot;
+
+  /// 점 아래에 찍을 이름. 건물 이름이고, 없으면 지번이다.
+  ///
+  /// **없을 수 있고, 없는 것이 정상이다.** 단독·토지는 원천이 이름을 안 주고,
+  /// 지번이 가려진 거래(`3**`)도 있다. 그럴 때는 아무것도 찍지 않는다 —
+  /// 지어내면 지도 위의 글자가 곧 거짓이 된다.
+  ///
+  /// 여러 건물이 섞인 묶음에도 없다. 격자로 묶인 것은 서로 다른 건물이라
+  /// 그중 하나의 이름을 붙이면 나머지를 그 이름으로 읽게 만든다.
+  final String? label;
 
   bool get isCluster => count > 1;
 }
@@ -111,7 +122,46 @@ MapFeature _single(MapPin pin) => MapFeature(
   propertyType: pin.datasetKey.split('/').first,
   approximate: pin.isApproximate,
   txId: pin.txId,
+  label: _labelOf([pin]),
 );
+
+/// 이 무리를 한 이름으로 부를 수 있으면 그 이름.
+///
+/// 건물 이름이 먼저다. 원천이 안 준 거래가 섞여 있어도 **하나라도 있으면**
+/// 그것을 쓴다 — 같은 좌표는 같은 건물이므로 이름도 같다. 이름이 아무에게도
+/// 없으면 지번으로 떨어지고, 그것도 없으면 라벨을 포기한다.
+String? _labelOf(List<MapPin> group) {
+  for (final pin in group) {
+    final name = _cleanName(pin.name);
+    if (name != null) return name;
+  }
+  for (final pin in group) {
+    final jibun = pin.jibun;
+    if (jibun != null && jibun.isNotEmpty) return jibun;
+  }
+  return null;
+}
+
+/// 이름 뒤에 원천이 붙여 놓은 지번 괄호를 뗀다.
+///
+/// 연립다세대는 원천이 이름에 지번을 덧붙여 준다 — `강변빌라(182-14)`. 이름이
+/// 등록되지 않은 건물은 아예 `(175-65)`처럼 지번만 괄호에 담아 온다.
+/// 광진구 연립·단독·토지 3,795건 중 541건(14%)이 그렇다.
+///
+/// 지도에서는 점이 이미 그 자리를 가리키므로 괄호 안의 지번은 같은 말을 두 번
+/// 하는 것이다. 다만 **괄호를 무조건 떼면 안 된다** — `무지개빌라(B)`의 괄호는
+/// 동 구분이라 떼면 옆 동과 구별이 사라진다. 안이 지번 꼴일 때만 뗀다.
+///
+/// 원문은 손대지 않는다. 상세 화면은 원천이 준 그대로를 보여야 한다.
+final _trailingJibun = RegExp(r'\(\s*\d+(-\d+)?\s*\)$');
+
+String? _cleanName(String? raw) {
+  final name = raw?.trim() ?? '';
+  if (name.isEmpty) return null;
+  final stripped = name.replaceFirst(_trailingJibun, '').trim();
+  // 통째로 지번이었다면 이름이 없는 것이다. 지번 쪽으로 넘긴다.
+  return stripped.isEmpty ? null : stripped;
+}
 
 /// 좌표가 **완전히 같은** 것끼리만 묶는다. 격자와 달리 줌을 보지 않는다 —
 /// 같은 점은 어떤 배율에서도 같은 점이다.
@@ -188,6 +238,10 @@ MapFeature _merge(List<MapPin> group) {
     propertyType: top,
     approximate: approximate,
     sameSpot: sameSpot,
+    // **한 자리에 모인 정확 좌표에만 이름을 붙인다.** 격자로 끌어모은 것은
+    // 서로 다른 건물이고, 근사 좌표는 지번을 몰라 동 중심에 쌓아 둔 것이라
+    // 어느 쪽도 한 이름으로 부를 수 없다.
+    label: sameSpot && !approximate ? _labelOf(group) : null,
   );
 }
 

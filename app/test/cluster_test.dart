@@ -11,6 +11,8 @@ MapPin _pin(
   double lng, {
   String precision = 'exact',
   String datasetKey = 'apartment/trade',
+  String? name,
+  String? jibun,
 }) => MapPin(
   txId: id,
   lat: lat,
@@ -21,9 +23,13 @@ MapPin _pin(
   deposit: null,
   monthlyRent: null,
   cancelled: false,
+  name: name,
+  jibun: jibun,
 );
 
 void main() {
+  _labels();
+
   _stackKinds();
 
   _iconNames();
@@ -259,6 +265,92 @@ void _stackKinds() {
 
       expect(result.approximate, isFalse);
       expect(result.sameSpot, isTrue);
+    });
+  });
+}
+
+/// 지도에 찍히는 이름.
+///
+/// **틀린 이름은 이름이 없는 것보다 나쁘다.** 격자로 끌어모은 묶음이나 법정동
+/// 중심에 쌓은 묶음에 한 건물 이름이 붙으면, 사용자는 그 자리의 모든 거래를
+/// 그 건물의 것으로 읽는다.
+void _labels() {
+  group('점 아래 이름', () {
+    test('낱개는 건물 이름을 쓴다', () {
+      final result = clusterPins([
+        _pin('a', 37.5806, 127.0503, name: '워커힐아파트', jibun: '광장동 1'),
+      ], 22).single;
+
+      expect(result.label, '워커힐아파트');
+    });
+
+    test('이름이 없으면 지번으로 떨어진다', () {
+      final result = clusterPins([
+        _pin('a', 37.5806, 127.0503, jibun: '149-8'),
+      ], 22).single;
+
+      expect(result.label, '149-8');
+    });
+
+    test('이름 뒤에 붙은 지번 괄호는 뗀다', () {
+      final result = clusterPins([
+        _pin('a', 37.5806, 127.0503, name: '강변빌라(182-14)', jibun: '182-14'),
+      ], 22).single;
+
+      expect(result.label, '강변빌라');
+    });
+
+    test('이름이 통째로 지번 괄호면 지번을 쓴다', () {
+      final result = clusterPins([
+        _pin('a', 37.5806, 127.0503, name: '(175-65)', jibun: '175-65'),
+      ], 22).single;
+
+      expect(result.label, '175-65');
+    });
+
+    test('동 구분 괄호는 떼지 않는다', () {
+      final result = clusterPins([
+        _pin('a', 37.5806, 127.0503, name: '무지개빌라(B)', jibun: '1-1'),
+      ], 22).single;
+
+      expect(result.label, '무지개빌라(B)');
+    });
+
+    test('이름도 지번도 없으면 붙이지 않는다', () {
+      final result = clusterPins([_pin('a', 37.5806, 127.0503)], 22).single;
+
+      expect(result.label, isNull);
+    });
+
+    test('같은 자리 묶음은 하나라도 있는 이름을 쓴다', () {
+      final result = clusterPins([
+        _pin('a', 37.5806, 127.0503),
+        _pin('b', 37.5806, 127.0503, name: '광장현대'),
+      ], 22).single;
+
+      expect(result.sameSpot, isTrue);
+      expect(result.label, '광장현대');
+    });
+
+    test('격자로 끌어모은 묶음에는 이름이 없다', () {
+      final result = clusterPins([
+        _pin('a', 37.5806, 127.0503, name: '가나아파트'),
+        _pin('b', 37.58061, 127.05031, name: '다라아파트'),
+      ], 12).single;
+
+      expect(result.isCluster, isTrue);
+      expect(result.sameSpot, isFalse);
+      expect(result.label, isNull);
+    });
+
+    test('근사 좌표 묶음에는 이름이 없다', () {
+      final result = clusterPins([
+        for (var i = 0; i < 3; i++)
+          _pin('u$i', 37.5385, 127.0823, precision: 'umd', name: '어딘가'),
+      ], 22).single;
+
+      expect(result.approximate, isTrue);
+      expect(result.label, isNull);
     });
   });
 }

@@ -51,6 +51,7 @@ const _sourceId = 'deals';
 const _pinLayer = 'deal-pins';
 const _approxLayer = 'deal-approx';
 const _clusterLayer = 'deal-clusters';
+const _labelLayer = 'deal-labels';
 
 /// 탭 판정에 쓰는 레이어. 개수 라벨은 뺀다 — 글자만 스치듯 눌려도 열려야 하는 게
 /// 아니라 그 아래 원이 열려야 한다.
@@ -154,7 +155,7 @@ class _MapPageState extends ConsumerState<MapPage> {
   }
 
   Future<void> _rebuildStyle(ml.MapLibreMapController controller) async {
-    for (final id in [_clusterLayer, _pinLayer, _approxLayer]) {
+    for (final id in [_labelLayer, _clusterLayer, _pinLayer, _approxLayer]) {
       // 없으면 없는 대로다. 있는지 묻고 지우는 것보다 지우고 넘어가는 편이 짧다
       try {
         await controller.removeLayer(id);
@@ -252,11 +253,56 @@ class _MapPageState extends ConsumerState<MapPage> {
       ],
     );
 
-    // **묶음 개수를 글자로 찍지 않는다.** 심볼 레이어의 textField는 글리프를
-    // 요구하는데 지금 스타일(OSM 래스터)에는 glyphs 항목이 없다. 글리프 요청이
-    // 빈 URL로 나가 실패하면 **그 소스의 레이어가 통째로 사라진다** — 오류 하나 없이
-    // 지도만 비어 보였다 (logcat: Mbgl-HttpRequest 'Unable to parse resourceUrl').
-    // 개수는 원 크기로 읽히게 두고, 글자는 글리프를 우리 R2에 올린 뒤에 붙인다.
+    // 점 아래에 건물 이름을 찍는다.
+    //
+    // **한때 글자를 못 썼다.** 래스터 스타일에는 `glyphs` 항목이 없어 글리프
+    // 요청이 빈 URL로 나갔고, 실패하면 그 소스의 레이어가 통째로 사라졌다 —
+    // 오류 하나 없이 지도만 비어 보였다. 지금 스타일은 PMTiles라 R2에 구워 올린
+    // Noto Sans KR을 가리키고, 한글 구간이 실제로 내려오는 것을 확인했다.
+    // 묶음 개수는 여전히 아이콘에 그려 넣는다 — 그쪽은 이미 되고 있고,
+    // 이름과 숫자를 한 레이어에 얹으면 둘이 서로를 밀어낸다.
+    //
+    // 그래도 **실패가 나머지를 무너뜨리지는 않게 한다.** 이 레이어가 없으면
+    // 이름만 없고, 이 레이어 때문에 세우기가 중단되면 지도가 통째로 빈다.
+    try {
+      await controller.addSymbolLayer(
+        _sourceId,
+        _labelLayer,
+        const ml.SymbolLayerProperties(
+          textField: ['get', 'label'],
+          // 글꼴 이름은 R2에 올린 폴더 이름 그대로여야 한다. 표현식이 아니라
+          // 문자열 목록이라야 네이티브가 읽는다.
+          textFont: ['NotoSansKR-Medium'],
+          textSize: 11,
+          textAnchor: 'top',
+          // 점 아래로 내린다. em 단위라 글자 크기를 바꾸면 함께 움직인다.
+          textOffset: [0, 1.4],
+          textColor: '#2B2721',
+          textHaloColor: '#FFFFFF',
+          textHaloWidth: 1.5,
+          // **겹치면 지운다.** 아파트 단지처럼 이름이 몰린 곳에서 전부 그리면
+          // 글자끼리 포개져 어느 것도 못 읽는다. 큰 묶음을 먼저 놓아
+          // 남는 자리를 거래가 많은 쪽이 갖게 한다.
+          textAllowOverlap: false,
+          textPadding: 4,
+          symbolSortKey: [
+            '-',
+            0,
+            ['get', 'count'],
+          ],
+        ),
+        // 낱개가 드러나기 시작하는 배율부터다. 그보다 낮으면 격자 묶음뿐이라
+        // 이름을 붙일 수 있는 점이 거의 없고, 있어도 서로 밀어낸다.
+        minzoom: 15,
+        filter: const [
+          'has',
+          'label',
+        ],
+        // 글자는 탭을 받지 않는다. 눌러야 하는 것은 그 위의 점이다.
+        enableInteraction: false,
+      );
+    } on Exception catch (_) {}
+
     controller.onFeatureTapped.remove(_onFeatureTapped);
     controller.onFeatureTapped.add(_onFeatureTapped);
     _styleReady = true;
@@ -762,6 +808,9 @@ Map<String, dynamic> _toCollection(List<MapFeature> features) => {
           // 확대해도 갈라지지 않는 묶음인가. 파고들지 목록을 열지가 갈린다
           'stack': f.sameSpot ? 1 : 0,
           'count': f.count,
+          // 없으면 아예 넣지 않는다. 라벨 레이어가 `has`로 거르므로
+          // 빈 문자열을 넣으면 빈 글자를 그리려 든다.
+          if (f.label != null) 'label': f.label,
           if (f.isCluster)
             'icon': clusterIconName(f.count, f.approximate, f.sameSpot),
           // 묶음을 눌렀을 때 파고들 자리. 렌더링된 피처에서 좌표를 되읽는 것보다
@@ -871,7 +920,9 @@ class _Legend extends StatelessWidget {
         const SizedBox(height: 5),
         const Text(
           '옅은 갈색은 지번을 몰라 법정동 중심에 모은 것',
-          style: TextStyle(fontSize: 10.5, color: Palette.warn),
+          // 10.5의 70%. 설명이지 읽히는 것이 목적이 아니라, 기호를 처음 본
+          // 사람이 한 번 찾아 읽으면 되는 줄이다.
+          style: TextStyle(fontSize: 7.35, color: Palette.warn),
         ),
       ],
     ),

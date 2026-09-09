@@ -63,6 +63,8 @@ class MapPin {
     required this.deposit,
     required this.monthlyRent,
     required this.cancelled,
+    this.name,
+    this.jibun,
   });
 
   final String txId;
@@ -74,6 +76,12 @@ class MapPin {
   final int? deposit;
   final int? monthlyRent;
   final bool cancelled;
+
+  /// 건물 이름. 지도에 라벨로 찍는다. 원천이 안 주는 유형이 있어 없을 수 있다
+  final String? name;
+
+  /// 지번. 이름이 없을 때 라벨로 쓴다. 마스킹된 값(`3**`)일 수 있다
+  final String? jibun;
 
   /// 법정동 중심점이라 같은 동의 거래가 모두 같은 좌표에 있다.
   /// 개별 핀으로 그리면 한 점에 수백 개가 쌓이므로 **반드시 묶어서** 그린다.
@@ -250,7 +258,8 @@ class AppDatabase extends _$AppDatabase {
     final rows = await customSelect(
       '''
       SELECT t.tx_id, t.lat, t.lng, t.precision, t.dataset_key,
-             t.amount, t.deposit, t.monthly_rent, t.cancelled
+             t.amount, t.deposit, t.monthly_rent, t.cancelled,
+             t.name, t.jibun
       FROM tx_geo g
       JOIN tx_rows t ON t.rid = g.id
       WHERE g.maxLat >= ? AND g.minLat <= ? AND g.maxLng >= ? AND g.minLng <= ?
@@ -274,6 +283,8 @@ class AppDatabase extends _$AppDatabase {
             deposit: r.readNullable<int>('deposit'),
             monthlyRent: r.readNullable<int>('monthly_rent'),
             cancelled: r.read<int>('cancelled') != 0,
+            name: r.readNullable<String>('name'),
+            jibun: r.readNullable<String>('jibun'),
           ),
         )
         .toList();
