@@ -130,6 +130,26 @@ class SyncEngine {
       );
     }
 
+    // **다른 지역의 매니페스트면 거부한다.**
+    //
+    // 여기까지 오면 `sggCd`가 두 곳에서 온다 — 부르는 쪽이 요청한 코드와
+    // 매니페스트가 스스로 적은 코드다. 아래에서 행을 넣을 때는 앞의 것을,
+    // 옛 행을 지우고 지역 행을 갱신할 때는 뒤의 것을 쓴다. 둘이 어긋나면
+    // **지우는 열쇠와 넣는 열쇠가 달라져** 옛 행이 남은 채 새 행이 쌓인다.
+    // 매니페스트에 `sggCd`가 없으면 `''`가 되므로 조용히 그 상태가 될 수 있다.
+    //
+    // 어긋날 이유가 없는 값이라, 어긋났다면 서버가 잘못 만든 것이다.
+    // 여기서 끊으면 아래 어느 코드도 두 값이 다른 경우를 생각하지 않아도 된다.
+    if (manifest.sggCd != sggCd) {
+      return SyncOutcome(
+        sggCd: sggCd,
+        status: SyncStatus.rejected,
+        message:
+            '$sggCd를 달라고 했는데 매니페스트는 '
+            '${manifest.sggCd.isEmpty ? '(비어 있음)' : manifest.sggCd}이다',
+      );
+    }
+
     final applied = await _db.appliedChunkPaths(sggCd);
     final wanted = manifest.files.map((f) => f.path).toSet();
     final missing = manifest.files

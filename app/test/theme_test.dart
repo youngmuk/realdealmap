@@ -78,14 +78,13 @@ void main() {
       expect(appTextScaler(const TextScaler.linear(0.85)).scale(10), 10 * 1.7);
     });
 
-    test('상세창은 상한을 건 뒤의 값에 비율을 곱한다', () {
-      expect(
-        appTextScaler(
-          const TextScaler.linear(2.0),
-          of: kDetailTextScale,
-        ).scale(10),
-        closeTo(10 * kMaxTextScale * kDetailTextScale, 1e-9),
-      );
+    // 상세창은 여기서 나온 값에 다시 kDetailTextScale을 곱한다.
+    // 이미 끊긴 값에 1보다 작은 수를 곱하는 것이라 상한을 넘길 수 없다.
+    test('상세창 비율을 곱해도 상한을 넘지 않는다', () {
+      final capped = appTextScaler(const TextScaler.linear(2.0)).scale(10);
+
+      expect(capped, 10 * kMaxTextScale);
+      expect(capped * kDetailTextScale, lessThan(10 * kMaxTextScale));
     });
   });
 }

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # 비밀값이 **커밋된 적이 있는지** 본다 (G6).
 #
-#   scripts/scan-history.sh
+#   scripts/scan-history.sh [검사할 이름...]
 #
-# 값은 환경변수에서 읽는다 — 로컬은 `.env`, CI는 GitHub Secrets. 인자로 받지
-# 않는 이유는 argv가 셸 히스토리와 프로세스 목록에 남기 때문이다.
+# 인자로 받는 것은 **이름**뿐이다. 값은 환경변수에서 읽는다 —
+# 로컬은 `.env`, CI는 GitHub Secrets. 값을 인자로 주면 셸 히스토리와
+# 프로세스 목록에 그대로 남는다.
 #
 # **왜 HEAD로는 모자란가.** 이 저장소는 public이다. 실수로 커밋한 값을 다음
 # 커밋에서 지워도 앞 커밋은 그대로 남아 누구나 꺼내 볼 수 있다. HEAD만 보면
@@ -17,12 +18,18 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-# 이름만 적는다. 값은 환경에서 온다.
+# 검사할 이름은 **부르는 쪽이 정한다.** 인자로 주면 그것만, 없으면 아래 전부.
 #
-# R2_ACCOUNT_ID와 R2_BUCKET은 넣지 않는다. 비밀값이 아니고(.env.example에
+# 왜 부르는 쪽이 정하나. 어떤 값은 GitHub에 아예 올라가지 않는다
+# (CLOUDFLARE_API_TOKEN·GITHUB_DISPATCH_TOKEN은 손으로만 쓰는 것이다).
+# 목록을 여기 고정해 두고 값이 없으면 건너뛰게 하면, CI는 그 두 개를
+# **영원히 안 보면서 매번 초록**이 된다 — 이 스크립트가 없애려던 바로 그 모양이다.
+# 이름을 받고, 받은 것 중 값이 빈 것이 있으면 **실패한다.**
+#
+# R2_ACCOUNT_ID와 R2_BUCKET은 목록에 없다. 비밀값이 아니고(.env.example에
 # 그렇게 적혀 있다) 버킷 이름은 문서와 스크립트에 그대로 나와서, 넣으면
 # 매번 걸린다. 매번 걸리는 검사는 곧 아무도 안 읽는다.
-NAMES=(
+DEFAULT_NAMES=(
   DATA_GO_KR_SERVICE_KEY
   R2_ACCESS_KEY_ID
   R2_SECRET_ACCESS_KEY
@@ -30,6 +37,12 @@ NAMES=(
   CLOUDFLARE_API_TOKEN
   GITHUB_DISPATCH_TOKEN
 )
+
+if [ "$#" -gt 0 ]; then
+  NAMES=("$@")
+else
+  NAMES=("${DEFAULT_NAMES[@]}")
+fi
 
 # 값이 짧으면 우연히 맞는다. 이보다 짧은 것은 비밀값이 아니라 자리표시자로 본다.
 MIN_LENGTH=16
@@ -39,12 +52,16 @@ fail=0
 
 for name in "${NAMES[@]}"; do
   val="${!name:-}"
+  # 검사하기로 한 이름인데 값이 없다. 건너뛰지 않는다 — 건너뛰면 그 값은
+  # 앞으로도 영영 검사되지 않으면서 결과는 초록으로 남는다.
   if [ -z "$val" ]; then
-    echo "  $name: 값이 없음 (건너뜀)"
+    echo "  $name: ❌ 검사하기로 했는데 값이 없습니다"
+    fail=1
     continue
   fi
   if [ "${#val}" -lt "$MIN_LENGTH" ]; then
-    echo "  $name: ⚠️  ${MIN_LENGTH}자보다 짧습니다. 자리표시자입니까?"
+    echo "  $name: ❌ ${MIN_LENGTH}자보다 짧습니다. 자리표시자입니까?"
+    fail=1
     continue
   fi
   checked=$((checked + 1))
@@ -63,7 +80,7 @@ done
 echo
 if [ "$checked" -eq 0 ]; then
   # 조용히 통과시키지 않는다. 아무것도 검사하지 못한 것과 깨끗한 것은 다르다.
-  echo "실패 — 검사할 값이 하나도 없습니다. 환경변수(.env / GitHub Secrets)를 확인하세요."
+  echo "실패 — 검사한 값이 하나도 없습니다. 환경변수(.env / GitHub Secrets)를 확인하세요."
   exit 1
 fi
 

@@ -30,12 +30,12 @@ const double kMaxTextScale = 3.0;
 
 /// 시스템 글자 크기 위에 우리 배율을 얹되 [kMaxTextScale]에서 끊는다.
 ///
-/// [of]는 화면별로 한 단계 더 줄일 때 쓴다(상세창의 [kDetailTextScale]).
-/// 상한을 먼저 걸고 나서 곱하므로, 상세창도 같은 비율을 유지한다.
-TextScaler appTextScaler(TextScaler system, {double of = 1}) =>
-    TextScaler.linear(
-      (system.scale(1) * kTextScale).clamp(0.0, kMaxTextScale) * of,
-    );
+/// **앱 껍데기에서 한 번만 부른다.** 상세창은 이렇게 나온 값에 다시
+/// [kDetailTextScale]을 곱한다 — 이미 끊긴 값에 1보다 작은 수를 곱하는 것이라
+/// 상한을 넘길 수 없다. 그래서 그쪽에서 이 함수를 다시 부르면 안 된다.
+/// 우리 배율이 두 번 곱해진다.
+TextScaler appTextScaler(TextScaler system) =>
+    TextScaler.linear((system.scale(1) * kTextScale).clamp(0.0, kMaxTextScale));
 
 /// 상세 정보창만 [kTextScale]의 이 비율로 줄인다.
 ///

@@ -20,11 +20,14 @@ fi
 
 get() { grep "^$1=" .env | cut -d= -f2- | tr -d '\r\n"' | xargs; }
 
+# 히스토리와 APK 양쪽에서 **없어야** 하는 값들.
+#
+# R2_ACCOUNT_ID는 여기 없다. 비밀값이 아니라고 .env.example에 적혀 있고,
+# 히스토리 검사에 넣으면 문서에 적힌 그 값이 매번 걸린다.
 SERVER_SECRETS=(
   DATA_GO_KR_SERVICE_KEY
   R2_ACCESS_KEY_ID
   R2_SECRET_ACCESS_KEY
-  R2_ACCOUNT_ID
   CALLBACK_SECRET
   CLOUDFLARE_API_TOKEN
   GITHUB_DISPATCH_TOKEN
@@ -35,14 +38,16 @@ fail=0
 echo "== 저장소 (커밋 히스토리 전체) =="
 # 값은 **환경으로** 넘긴다. 인자로 주면 프로세스 목록에 그대로 남는다.
 # .env를 통째로 source 하지 않는 것은, 그 파일이 셸로 실행되게 두지 않기 위해서다.
-env   DATA_GO_KR_SERVICE_KEY="$(get DATA_GO_KR_SERVICE_KEY)"   R2_ACCESS_KEY_ID="$(get R2_ACCESS_KEY_ID)"   R2_SECRET_ACCESS_KEY="$(get R2_SECRET_ACCESS_KEY)"   CALLBACK_SECRET="$(get CALLBACK_SECRET)"   CLOUDFLARE_API_TOKEN="$(get CLOUDFLARE_API_TOKEN)"   GITHUB_DISPATCH_TOKEN="$(get GITHUB_DISPATCH_TOKEN)"   bash scripts/scan-history.sh || fail=1
+env   DATA_GO_KR_SERVICE_KEY="$(get DATA_GO_KR_SERVICE_KEY)"   R2_ACCESS_KEY_ID="$(get R2_ACCESS_KEY_ID)"   R2_SECRET_ACCESS_KEY="$(get R2_SECRET_ACCESS_KEY)"   CALLBACK_SECRET="$(get CALLBACK_SECRET)"   CLOUDFLARE_API_TOKEN="$(get CLOUDFLARE_API_TOKEN)"   GITHUB_DISPATCH_TOKEN="$(get GITHUB_DISPATCH_TOKEN)"   bash scripts/scan-history.sh "${SERVER_SECRETS[@]}" || fail=1
 
 echo
 echo "== APK: $APK =="
 if [ ! -f "$APK" ]; then
-  echo "  ⚠️  APK가 없습니다. 먼저 빌드하세요."
-  echo "     flutter build apk --release --dart-define=..."
-  exit "$fail"
+  # **통과로 끝내지 않는다.** 저장소 검사만 하고 0을 돌려주면, 부르는 쪽은
+  # 산출물에 대해 아무것도 확인하지 않은 것을 "깨끗하다"로 읽는다.
+  echo "  ❌ APK가 없습니다. 산출물을 하나도 검사하지 못했습니다."
+  echo "     app/tool/build-release.sh apk 로 먼저 빌드하세요."
+  exit 1
 fi
 
 work=$(mktemp -d)

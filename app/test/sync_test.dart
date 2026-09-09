@@ -437,6 +437,43 @@ void main() {
       expect(await rowCount(), 0);
     });
 
+    // 지우는 열쇠와 넣는 열쇠가 갈리는 자리다. 조용히 넘기면 옛 행이 남은 채
+    // 새 행이 쌓인다.
+    test('다른 지역의 매니페스트는 거부한다', () async {
+      final f = _Fixture('11680');
+      f.addChunk(
+        propertyType: 'apartment',
+        tradeType: 'sale',
+        month: '202608',
+        records: [record('a')],
+      );
+      f.publish();
+      // 내용은 그대로 두고 열쇠만 옮긴다 — 서버가 잘못 만든 모양이다.
+      f.objects['v1/regions/11110/manifest.json'] =
+          f.objects['v1/regions/11680/manifest.json']!;
+
+      final result = await SyncEngine(db, _FakeRemote(f.objects)).sync('11110');
+
+      expect(result.status, SyncStatus.rejected);
+      expect(result.keptExisting, isTrue);
+      expect(result.message, contains('11680'));
+      expect(await rowCount(), 0);
+    });
+
+    test('매니페스트에 sggCd가 없어도 거부한다', () async {
+      final f = goodFixture();
+      final key = 'v1/regions/11680/manifest.json';
+      final json =
+          jsonDecode(utf8.decode(f.objects[key]!)) as Map<String, dynamic>;
+      json.remove('sggCd');
+      f.objects[key] = Uint8List.fromList(utf8.encode(jsonEncode(json)));
+
+      final result = await SyncEngine(db, _FakeRemote(f.objects)).sync('11680');
+
+      expect(result.status, SyncStatus.rejected);
+      expect(result.message, contains('비어 있음'));
+    });
+
     // 앞으로 나온 판을 반쯤 읽어 쓰면 무엇이 옛 규칙으로 들어왔는지 알 수 없다.
     test('모르는 판은 읽지 않는다', () async {
       final f = goodFixture();
