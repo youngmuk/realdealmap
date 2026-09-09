@@ -70,6 +70,49 @@ void main() {
     expect(result.every((f) => f.txId != null), isTrue);
   });
 
+  // 좌표 사전은 `법정동|지번 → 한 점`이라 한 아파트 단지의 거래는 좌표가 하나다.
+  // 실제 데이터로 재 보니 정확좌표 거래의 94%가 누군가와 자리를 나눠 쓰고,
+  // 한 점에 132건이 겹친 곳도 있었다.
+  //
+  // 이것을 낱개로 그리면 화면에는 **한 개로 보이고** 탭하면 맨 위 하나만 열려
+  // 나머지는 닿을 길이 없다. 실기기에서 39짜리 묶음을 확대했더니 점이 하나만
+  // 보인다는 신고가 들어왔고, 원인이 이것이었다.
+  test('정확 좌표라도 완전히 같은 자리면 최대 줌에서도 묶인다', () {
+    final pins = [for (var i = 0; i < 39; i++) _pin('a$i', 37.5806, 127.0503)];
+
+    final result = clusterPins(pins, 22);
+
+    expect(result, hasLength(1));
+    expect(result.single.count, 39);
+    expect(result.single.isCluster, isTrue);
+    // 확대해도 갈라지지 않는다는 표시. 이것이 false면 탭이 파고들기로 가서
+    // 같은 묶음이 다시 나오고, 사용자에게는 반응이 없는 것으로 보인다.
+    expect(result.single.sameSpot, isTrue);
+    expect(result.single.approximate, isFalse);
+  });
+
+  test('같은 자리 묶음의 좌표는 원래 좌표 그대로다', () {
+    // 이 좌표로 DB를 되물어 목록을 연다. 평균을 내다 미세하게 어긋나면
+    // 조회가 빈 결과를 내고 목록이 안 열린다.
+    final pins = [for (var i = 0; i < 3; i++) _pin('b$i', 37.5806, 127.0503)];
+
+    final result = clusterPins(pins, 22).single;
+
+    expect(result.lat, 37.5806);
+    expect(result.lng, 127.0503);
+  });
+
+  test('같은 자리가 아닌 묶음은 sameSpot이 아니다', () {
+    // 격자로 묶인 것은 확대하면 갈라진다. 파고들기가 맞다.
+    final result = clusterPins([
+      _pin('c0', 37.5806, 127.0503),
+      _pin('c1', 37.5807, 127.0504),
+    ], 12);
+
+    expect(result.single.count, 2);
+    expect(result.single.sameSpot, isFalse);
+  });
+
   test('근사 좌표는 최대 줌을 넘겨도 묶인다', () {
     // 법정동 중심점이라 좌표가 완전히 같다. 낱개로 그리면 한 점에 200개가 쌓여
     // 맨 위 하나만 눌린다 — 나머지 199건은 눌러도 열리지 않는다.

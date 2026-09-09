@@ -263,13 +263,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           // 글자 배율을 태운다. 30으로 고정하면 배율이 커졌을 때 기준 시각이
           // 잘려 "오프라인 (저장된 데이…"가 된다 — 잘린 경고는 경고가 아니다.
           //
-          // 기준 시각 두 줄(30)에 참고용 고지 한 줄을 더한다 (T6.6 · G6).
-          // 설정이 빠진 빌드에서는 경고 줄이 하나 더 붙는다 — 자리를 안 주면
-          // 넘쳐서 잘리고, 잘린 경고는 다시 경고가 아니게 된다.
+          // 기준 시각 두 줄(30)만 잡는다. **참고용 고지는 여기 없다** —
+          // 화면 아래 가운데로 옮겼다(G6는 상시 노출을 요구할 뿐 자리를
+          // 정하지 않는다). 설정이 빠진 빌드에서는 경고 줄이 하나 더 붙는다 —
+          // 자리를 안 주면 넘쳐서 잘리고, 잘린 경고는 다시 경고가 아니게 된다.
           preferredSize: Size.fromHeight(
             MediaQuery.textScalerOf(context).scale(
               30 +
-                  kAboutBannerHeight +
                   ref.watch(configProvider).issues.length *
                       (kConfigWarningHeight + 2),
             ),
@@ -277,11 +277,24 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           child: const _StatusBar(),
         ),
       ),
-      body: IndexedStack(
-        index: _tab,
+      // 고지를 본문 **위에 겹친다.** 탭 안에 각각 두면 지도와 목록 양쪽에
+      // 같은 것을 놓아야 하고, 한쪽을 고치면서 다른 쪽을 잊게 된다.
+      // 여기 한 곳에 두면 어느 탭에서든 늘 보이는 것이 구조로 보장된다.
+      body: Stack(
         children: [
-          MapPage(onShowList: () => _showTab(1)),
-          const ListPage(),
+          IndexedStack(
+            index: _tab,
+            children: [
+              MapPage(onShowList: () => _showTab(1)),
+              const ListPage(),
+            ],
+          ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 8,
+            child: Center(child: AboutBanner()),
+          ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -408,7 +421,6 @@ class _StatusBar extends ConsumerWidget {
                 ),
               ],
             ),
-            const AboutBanner(),
             const ConfigWarning(),
           ],
         ),

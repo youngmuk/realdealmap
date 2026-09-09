@@ -36,14 +36,17 @@ void main() {
       expect(AboutBanner.notice, contains('법적 효력'));
     });
 
-    // 잘린 고지는 고지가 아니다. 상태바가 내주는 높이는 [kAboutBannerHeight]로
-    // 정해져 있고, 여기가 그보다 커지면 화면에서 아랫부분이 실제로 잘려 나간다.
+    // 잘린 고지는 고지가 아니다.
+    //
+    // 상태바 안에 있을 때는 [kAboutBannerHeight]가 천장이었다. 화면 아래
+    // 가운데로 옮긴 뒤로는 그 천장이 없지만, **한 줄을 넘지 않는 것**은 여전히
+    // 지켜야 한다 — 두 줄이 되면 지도를 그만큼 더 가리고 탭 막대와 부딪힌다.
     //
     // 배율은 우리가 곱하는 2배 위에 사용자의 시스템 확대가 또 겹칠 수 있다.
     // 그 조합까지 견뎌야 한다.
-    testWidgets('배율을 키워도 내준 높이 안에 온전히 들어간다', (tester) async {
-      // 상태바 좌우 여백 16씩을 뺀 실제 폭
-      const available = 393.0 - 32;
+    testWidgets('배율을 키워도 한 줄에 온전히 들어간다', (tester) async {
+      // 화면 폭. 아래 가운데에 떠 있으므로 좌우 여백을 뺄 이유가 없다.
+      const available = 393.0;
 
       for (final scale in [1.0, kTextScale, kTextScale * 1.3]) {
         await tester.pumpWidget(
@@ -61,10 +64,12 @@ void main() {
           isFalse,
           reason: '배율 $scale에서 고지가 잘렸다',
         );
+        // 한 줄 + 위아래 여백. 천장이 아니라 **두 줄이 되지 않았다는 증거**로
+        // 본다 — 두 줄이면 이 값이 대략 두 배가 된다.
         expect(
           tester.getSize(find.byType(AboutBanner)).height,
-          lessThanOrEqualTo(kAboutBannerHeight * scale),
-          reason: '배율 $scale에서 상태바가 내준 높이를 넘었다',
+          lessThanOrEqualTo((kAboutBannerHeight + 4) * scale),
+          reason: '배율 $scale에서 고지가 한 줄을 넘었다',
         );
         expect(
           tester.getSize(find.byType(AboutBanner)).width,

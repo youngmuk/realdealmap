@@ -18,6 +18,7 @@ import '../detail/detail_sheet.dart';
 import 'cluster.dart';
 import 'cluster_icons.dart';
 import 'map_focus.dart';
+import 'stack_sheet.dart';
 import 'style_watchdog.dart';
 
 /// 상세창에서 데려올 때의 확대 수준.
@@ -211,10 +212,11 @@ class _MapPageState extends ConsumerState<MapPage> {
       _sourceId,
       _pinLayer,
       ml.CircleLayerProperties(
-        circleRadius: 6.5,
+        // 6.5에서 1.5배. 실기기에서 너무 작아 눌러야 할 것으로 안 보였다.
+        circleRadius: 9.75,
         circleColor: _colorExpression,
         circleOpacity: 0.9,
-        circleStrokeWidth: 1.5,
+        circleStrokeWidth: 2,
         circleStrokeColor: '#FFFFFF',
       ),
       filter: const [
@@ -506,10 +508,15 @@ class _MapPageState extends ConsumerState<MapPage> {
         (features.first as Map?)?['properties'] as Map<Object?, Object?>?;
     if (properties == null) return;
 
-    // 묶음을 누르면 파고든다. 상세를 열 수 없으니 **아무 일도 안 일어나면
-    // 고장으로 읽힌다** — 한 단계 확대해서 묶음이 풀리는 것을 보여준다.
     if (properties['cluster'] == 1) {
-      await _zoomInto(properties);
+      // 확대해도 갈라지지 않는 묶음은 **확대하면 안 된다.** 한 아파트 단지의
+      // 거래는 좌표가 하나라, 파고들기를 반복해도 같은 묶음만 다시 나온다 —
+      // 사용자에게는 앱이 눌러도 반응하지 않는 것으로 보인다. 목록을 연다.
+      if (properties['stack'] == 1) {
+        await _openStack(properties);
+      } else {
+        await _zoomInto(properties);
+      }
       return;
     }
 
@@ -521,6 +528,47 @@ class _MapPageState extends ConsumerState<MapPage> {
     await DetailSheet.show(context, tx);
     // 상세를 닫은 직후는 안전 전환 지점이다 (FR-6). 지도를 만지는 도중이
     // 아니라 손을 뗀 자리라서, 우발적 클릭을 유도하지 않는다.
+    if (mounted) ref.adMoment(AdMoment.detailClosed);
+  }
+
+  /// 한 자리에 겹친 거래를 목록으로 연다.
+  ///
+  /// 좌표로 되묻는다 — 묶을 때 쥐고 있던 것을 실어 나르지 않는다. 한 점에
+  /// 130건이 넘는 곳이 있어서 피처 속성에 담으면 소스 전체가 무거워진다.
+  Future<void> _openStack(Map<Object?, Object?> properties) async {
+    final lat = (properties['lat'] as num?)?.toDouble();
+    final lng = (properties['lng'] as num?)?.toDouble();
+    if (lat == null || lng == null) return;
+
+    final filter = ref.read(filterProvider);
+    final pins = await ref
+        .read(databaseProvider)
+        .pinsInBounds(
+          sggCd: ref.read(selectedRegionProvider),
+          // 같은 점만 잡는 상자. R-트리 비교가 부동소수라 딱 맞추지 않고
+          // 1e-7(약 1cm)만 벌린다 — 옆 건물이 딸려 올 거리가 아니다.
+          south: lat - _kSpotEpsilon,
+          north: lat + _kSpotEpsilon,
+          west: lng - _kSpotEpsilon,
+          east: lng + _kSpotEpsilon,
+          // 지도에 그린 것과 **같은 조건**이라야 묶음의 숫자와 목록의 길이가 맞는다.
+          datasetKeys: filter.datasetKeysOrNull,
+          includeCancelled: filter.includeCancelled,
+          minAmount: filter.minAmount,
+          maxAmount: filter.maxAmount,
+          months: filter.months,
+        );
+    if (!mounted || pins.isEmpty) return;
+
+    final db = ref.read(databaseProvider);
+    final rows = <TxRow>[];
+    for (final pin in pins) {
+      final tx = await db.byTxId(pin.txId);
+      if (tx != null) rows.add(tx);
+    }
+    if (!mounted || rows.isEmpty) return;
+
+    await StackSheet.show(context, rows);
     if (mounted) ref.adMoment(AdMoment.detailClosed);
   }
 
@@ -652,27 +700,23 @@ class _MapPageState extends ConsumerState<MapPage> {
             ),
           ),
         // 오른쪽 여백을 함께 잡아 글자 배율이 커져도 범례가 화면을 넘지 않는다.
+        //
+        // 아래를 넉넉히 띄우는 것은 **참고용 고지가 화면 맨 아래 가운데에**
+        // 떠 있기 때문이다(app.dart). 12로 두면 범례가 그 위에 올라타
+        // 두 글자가 겹쳐 읽히지 않는다 — 실기기에서 그렇게 나왔다.
         Positioned(
           left: 12,
           right: 12,
-          bottom: 12,
-          child: Align(
-            alignment: Alignment.bottomLeft,
-            child: _Legend(
-              drawn: _drawn,
-              total: _total,
-              truncated: _truncated,
-              // 고른 지역에 좌표가 없다는 고지가 떠 있을 때는 건수를 감춘다.
-              // 그 숫자는 **지금 보이는 자리**의 것이라 맞는 말이지만,
-              // 머리말의 지역과 나란히 놓이면 그 지역의 건수로 읽힌다.
-              showCount: _noCenterFor == null,
-            ),
-          ),
+          bottom: 34,
+          child: Align(alignment: Alignment.bottomLeft, child: const _Legend()),
         ),
       ],
     );
   }
 }
+
+/// 같은 점을 되찾을 때 벌리는 여유. 약 1cm라 옆 건물이 딸려 오지 않는다.
+const double _kSpotEpsilon = 1e-7;
 
 /// 유형을 색으로 가른다. 표현식으로 넘기면 레이어 하나로 다섯 유형을 그린다.
 const List<Object> _colorExpression = [
@@ -709,6 +753,8 @@ Map<String, dynamic> _toCollection(List<MapFeature> features) => {
           'type': f.propertyType,
           'approx': f.approximate ? 1 : 0,
           'cluster': f.isCluster ? 1 : 0,
+          // 확대해도 갈라지지 않는 묶음인가. 파고들지 목록을 열지가 갈린다
+          'stack': f.sameSpot ? 1 : 0,
           'count': f.count,
           if (f.isCluster) 'icon': clusterIconName(f.count, f.approximate),
           // 묶음을 눌렀을 때 파고들 자리. 렌더링된 피처에서 좌표를 되읽는 것보다
@@ -772,22 +818,17 @@ class _NoCenterNotice extends StatelessWidget {
   );
 }
 
+/// 색깔이 무엇을 뜻하는지만 말한다.
+///
+/// 건수 줄("화면 안 N건 중 M건만 표시")은 **일부러 뺐다.** 지도를 조금만 움직여도
+/// 숫자가 바뀌어 눈에 계속 걸리는데, 사용자가 그것으로 하는 일이 없다.
+///
+/// **상한(5,000건)에 걸린 사실도 함께 사라졌다.** 그것은 대가다 — 화면 안에
+/// 30,000건이 있어도 5,000개만 그려지고, 사용자는 그것이 전부인 줄 안다.
+/// 다만 그 배율은 이미 점이 뭉개져 개별 거래를 읽을 수 없는 상태이고,
+/// 확대하면 상한에서 벗어난다.
 class _Legend extends StatelessWidget {
-  const _Legend({
-    required this.drawn,
-    required this.total,
-    required this.truncated,
-    this.showCount = true,
-  });
-
-  final bool showCount;
-  final int drawn;
-
-  /// 화면 안에 실제로 있는 건수
-  final int total;
-
-  /// 상한에 걸려 일부만 그렸는가. **감추면 사용자는 그것이 전부인 줄 안다**
-  final bool truncated;
+  const _Legend();
 
   @override
   Widget build(BuildContext context) => Container(
@@ -812,21 +853,6 @@ class _Legend extends StatelessWidget {
               ),
           ],
         ),
-        if (showCount) ...[
-          const SizedBox(height: 5),
-          Text(
-            truncated
-                ? '화면 안 ${formatCount(total)}건 중 ${formatCount(drawn)}건만 표시 '
-                      '· 확대하면 전부 보입니다'
-                : drawn == 0
-                ? '화면 안 0건'
-                : '화면 안 ${formatCount(drawn)}건 · 옅은 원은 법정동 근사',
-            style: TextStyle(
-              fontSize: 10.5,
-              color: truncated ? Palette.warn : Palette.ink3,
-            ),
-          ),
-        ],
       ],
     ),
   );

@@ -23,6 +23,7 @@ class MapFeature {
     required this.propertyType,
     required this.approximate,
     this.txId,
+    this.sameSpot = false,
   });
 
   final double lat;
@@ -40,6 +41,12 @@ class MapFeature {
 
   /// 낱개일 때만 있다. 탭하면 이것으로 상세를 연다
   final String? txId;
+
+  /// 묶인 것들이 **정확히 같은 좌표**에 있는가.
+  ///
+  /// 이러면 아무리 확대해도 갈라지지 않는다. 확대로 파고드는 대신 목록을
+  /// 열어야 한다는 표시다. 낱개일 때는 의미가 없어 false다.
+  final bool sameSpot;
 
   bool get isCluster => count > 1;
 }
@@ -80,7 +87,14 @@ List<MapFeature> clusterPins(
 
   final features = <MapFeature>[];
   if (zoom >= maxZoom) {
-    features.addAll(exact.map(_single));
+    // **낱개로 흩어 놓지 않는다.** 좌표 사전은 `법정동|지번 → 한 점`이라
+    // 한 아파트 단지의 거래는 전부 같은 좌표를 갖는다. 실제 데이터로 재 보니
+    // 동대문구 아파트 전월세 939건이 좌표 155개에 앉아 있고, 한 점에 132건이
+    // 겹친 곳도 있었다 — 정확좌표 거래의 94%가 누군가와 자리를 나눠 쓴다.
+    //
+    // 그것을 낱개로 그리면 39개가 정확히 포개져 **한 개로 보이고**, 탭하면 맨
+    // 위 하나만 열려 나머지는 닿을 길이 없다. 겹친 것은 묶는다.
+    features.addAll(_sameSpot(exact));
   } else {
     features.addAll(_grid(exact, zoom, cellPx));
   }
@@ -98,6 +112,22 @@ MapFeature _single(MapPin pin) => MapFeature(
   approximate: pin.isApproximate,
   txId: pin.txId,
 );
+
+/// 좌표가 **완전히 같은** 것끼리만 묶는다. 격자와 달리 줌을 보지 않는다 —
+/// 같은 점은 어떤 배율에서도 같은 점이다.
+List<MapFeature> _sameSpot(List<MapPin> pins) {
+  if (pins.isEmpty) return const [];
+
+  final buckets = <String, List<MapPin>>{};
+  for (final pin in pins) {
+    buckets.putIfAbsent('${pin.lat},${pin.lng}', () => []).add(pin);
+  }
+
+  return [
+    for (final group in buckets.values)
+      if (group.length == 1) _single(group.first) else _merge(group),
+  ];
+}
 
 List<MapFeature> _grid(List<MapPin> pins, double zoom, double cellPx) {
   if (pins.isEmpty) return const [];
@@ -123,12 +153,16 @@ MapFeature _merge(List<MapPin> group) {
   var lat = 0.0;
   var lng = 0.0;
   var approximate = false;
+  // 전부 한 자리인가. 그러면 확대해도 갈라지지 않으니 목록을 열어야 한다.
+  var sameSpot = true;
+  final first = group.first;
   final byType = <String, int>{};
 
   for (final pin in group) {
     lat += pin.lat;
     lng += pin.lng;
     if (pin.isApproximate) approximate = true;
+    if (pin.lat != first.lat || pin.lng != first.lng) sameSpot = false;
     final type = pin.datasetKey.split('/').first;
     byType[type] = (byType[type] ?? 0) + 1;
   }
@@ -145,11 +179,15 @@ MapFeature _merge(List<MapPin> group) {
   }
 
   return MapFeature(
-    lat: lat / group.length,
-    lng: lng / group.length,
+    // 한 자리에 모인 것이면 평균이 곧 그 자리다. 다만 부동소수 나눗셈이
+    // 원래 값과 미세하게 어긋날 수 있어, 그때는 **원래 좌표를 그대로 쓴다** —
+    // 이 좌표로 다시 조회해 목록을 열기 때문이다.
+    lat: sameSpot ? first.lat : lat / group.length,
+    lng: sameSpot ? first.lng : lng / group.length,
     count: group.length,
     propertyType: top,
     approximate: approximate,
+    sameSpot: sameSpot,
   );
 }
 

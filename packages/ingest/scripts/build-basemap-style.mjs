@@ -48,6 +48,42 @@ const flattenFont = (value) => {
   return found ? found.slice(0, 1) : ['Noto Sans Regular'];
 };
 
+/**
+ * 건물 외곽선을 넣는다.
+ *
+ * 테마의 `buildings`는 **fill 하나뿐이다.** 그래서 건물이 서로 맞닿은 동네에서는
+ * 회색 한 덩어리가 되고 어디까지가 한 채인지 보이지 않는다. 실기기에서 확인했다.
+ *
+ * `fill-outline-color` 대신 line 레이어를 따로 둔다. 그쪽은 굵기를 못 정해
+ * 항상 1px인데, 건물이 작게 보이는 배율에서는 그 1px이 면을 거의 덮어 버린다.
+ * 여기서는 줌에 따라 가늘게 시작해 굵어지게 한다.
+ *
+ * 채우기 **바로 위**에 넣는다. 더 위에 두면 도로와 라벨을 가린다.
+ */
+const addBuildingOutline = (layers) => {
+  const at = layers.findIndex((l) => l.id === 'buildings');
+  // 테마가 바뀌어 레이어 이름이 달라지면 조용히 넘어가지 않는다. 외곽선이
+  // 없는 것은 화면만 봐서는 "원래 그런가 보다"와 구별되지 않는다.
+  if (at < 0) throw new Error('buildings 레이어를 찾지 못했다');
+
+  layers.splice(at + 1, 0, {
+    id: 'buildings-outline',
+    type: 'line',
+    source: 'protomaps',
+    'source-layer': 'buildings',
+    filter: layers[at].filter,
+    // 건물 타일 자체가 z11부터다. 그보다 낮은 배율에서는 건물이 점만 해서
+    // 선을 그어도 얼룩으로만 보인다.
+    minzoom: 15,
+    paint: {
+      'line-color': '#9E9689',
+      'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.3, 17, 0.7, 20, 1.2],
+      'line-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0.35, 17, 0.8],
+    },
+  });
+  return 1;
+};
+
 const buildStyle = () => {
   const layers = themes.layersWithCustomTheme('protomaps', themes.namedTheme('light'), 'ko');
   let labels = 0;
@@ -70,7 +106,10 @@ const buildStyle = () => {
     }
   }
 
+  const outlines = addBuildingOutline(layers);
+
   return {
+    outlines,
     style: {
       version: 8,
       name: '실거래가 지도 배경',
@@ -93,7 +132,7 @@ const buildStyle = () => {
 
 const main = () => {
   const [out = 'style-ko.json'] = process.argv.slice(2);
-  const { style, labels, fonts } = buildStyle();
+  const { style, labels, fonts, outlines } = buildStyle();
   const json = JSON.stringify(style);
 
   // 테마 API를 잘못 부르면 색이 null로 채워진 스타일이 나온다. 그러면 앱은
@@ -106,6 +145,7 @@ const main = () => {
   writeFileSync(out, json);
   console.log(
     `${out} — 레이어 ${style.layers.length} · 라벨 ${labels} · 글꼴 ${fonts} · ` +
+      `외곽선 ${outlines} · ` +
       `${(json.length / 1024).toFixed(1)}KB`,
   );
 };
