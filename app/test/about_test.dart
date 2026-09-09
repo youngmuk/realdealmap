@@ -134,6 +134,19 @@ void main() {
       expect(find.textContaining('권한을 주지 않아도'), findsWidgets);
     });
 
+    // 여기가 조용히 되돌아가기 쉬운 자리다. 광고 SDK를 붙이기 전에는
+    // "기기 식별자를 받지도 보내지도 않습니다"가 사실이었고, 붙인 뒤에도
+    // 그 문장이 그대로 남아 있었다. 앱과 방침이 어긋나면 Play 심사에서
+    // 데이터 보안 양식과 대조된다 — 그것은 실수가 아니라 허위 신고가 된다.
+    testWidgets('광고가 광고 식별자를 쓴다는 것을 밝힌다', (tester) async {
+      await pump(tester);
+
+      expect(find.textContaining('광고 식별자'), findsWidgets);
+      expect(find.textContaining('AdMob'), findsWidgets);
+      // 우리가 안 모은다는 말이 "아무도 안 모은다"로 읽히면 안 된다.
+      expect(find.textContaining('기기 식별자를 받지도'), findsNothing);
+    });
+
     testWidgets('닫을 수 있다', (tester) async {
       await pump(tester);
 
