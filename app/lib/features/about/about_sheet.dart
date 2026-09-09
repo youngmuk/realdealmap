@@ -211,69 +211,14 @@ class _Source extends StatelessWidget {
   );
 }
 
-/// 상태바가 [AboutBanner]에 내주던 높이. **더는 상태바에 있지 않다** —
-/// 화면 아래 가운데로 옮겼다. 상수는 아래 겹침 배치가 쓴다.
-const double kAboutBannerHeight = 18;
-
-/// 상시 노출되는 한 줄 (G6).
+/// 참고용 고지 한 줄.
 ///
-/// **화면 아래 가운데에 겹쳐 둔다.** 머리말에 있을 때는 지역 이름·기준 시각과
-/// 나란히 놓여 상태 표시의 하나로 읽혔고, 세 줄이 쌓여 지도를 그만큼 눌렀다.
-/// 아래로 내리면 지도를 가리지 않으면서도 어느 탭에서든 늘 보인다.
+/// 이 문구가 G6의 "참고용 고지"다. 바꾸려면 그 조건을 다시 읽고 바꿔야 한다.
 ///
-/// 지도 위에 뜨므로 **바탕을 깐다.** 깔지 않으면 밝은 건물면 위에서 회색 글씨가
-/// 사라진다 — 안 보이는 고지는 고지가 아니다.
-class AboutBanner extends StatelessWidget {
-  const AboutBanner({super.key});
-
-  /// 이 문구가 G6의 "참고용 고지"다. 바꾸려면 그 조건을 다시 읽고 바꿔야 한다.
-  ///
-  /// 짧은 것은 게을러서가 아니다. 글자 배율 2배에서 한 줄에 들어가야 하고,
-  /// 넘쳐서 줄바꿈되면 상태바 높이를 넘어 잘린다 — 잘린 고지는 고지가 아니다.
-  /// 온전한 문장은 [AboutSheet]에 있고, 이 줄을 누르면 거기로 간다.
-  static const String notice = '참고용 · 법적 효력 없음';
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Palette.surface.withValues(alpha: 0.94),
-    borderRadius: BorderRadius.circular(7),
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: () => AboutSheet.show(context),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        // 줄바꿈 대신 **줄어들게** 한다.
-        //
-        // 우리 배율 2배 위에 사용자의 시스템 확대까지 겹치면 이 줄은 폭을 넘는다.
-        // 그때 넘치면 두 줄이 되고, 상태바 높이는 한 줄을 전제로 잡혀 있어 아랫줄이
-        // 잘린다. 잘린 고지는 고지가 아니다. 조금 작아지는 쪽이 낫고, 그래도
-        // 시스템 기본 크기보다는 훨씬 크다.
-        //
-        // '출처' 같은 낱말을 덧붙이지 않는 것도 같은 이유다. 밑줄과 아이콘만으로
-        // 누를 수 있다는 것은 전해진다.
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                notice,
-                maxLines: 1,
-                style: const TextStyle(
-                  // 10.5의 80%. 머리말에서 아래로 내리면서 함께 줄였다.
-                  fontSize: 8.4,
-                  color: Palette.slate,
-                  fontWeight: FontWeight.w600,
-                  decoration: TextDecoration.underline,
-                ).copyWith(decorationColor: Palette.slate),
-              ),
-              const SizedBox(width: 3),
-              const Icon(Icons.info_outline, size: 8.8, color: Palette.slate),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
+/// **전에는 머리말에 상시 노출하는 배너였다.** 그 한 줄이 지도 위쪽을 계속
+/// 차지하면서도 사용자가 하루에 한 번도 누르지 않는 자리여서, 설정 화면과
+/// 상세 화면 두 곳으로 옮겼다. G6가 요구하는 것은 "표시된다"이지 상시가 아니다.
+///
+/// 짧은 것은 게을러서가 아니다. 글자 배율 2배에서 한 줄에 들어가야 한다.
+/// 온전한 문장은 [AboutSheet]에 있다.
+const String kNotice = '참고용 · 법적 효력 없음';

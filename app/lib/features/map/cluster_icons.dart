@@ -37,8 +37,9 @@ String clusterLabel(int count) {
 }
 
 /// 이 묶음을 그릴 아이콘 이름. 같은 이름이면 이미 올린 이미지를 그대로 쓴다
-String clusterIconName(int count, bool approximate) =>
-    'rdm-c-${clusterLabel(count)}-${approximate ? 'a' : 'e'}';
+String clusterIconName(int count, bool approximate, bool sameSpot) =>
+    'rdm-c-${clusterLabel(count)}-${approximate ? 'a' : 'e'}'
+    '${sameSpot ? '-s' : ''}';
 
 /// 필요한 아이콘을 스타일에 올린다. 이미 올린 것은 건너뛴다.
 ///
@@ -46,53 +47,76 @@ String clusterIconName(int count, bool approximate) =>
 /// 나오므로, 이걸 안 들고 있으면 매번 수십 장을 다시 그린다.
 Future<void> ensureClusterIcons(
   ml.MapLibreMapController controller,
-  Iterable<({int count, bool approximate})> needed,
+  Iterable<({int count, bool approximate, bool sameSpot})> needed,
   Set<String> added,
 ) async {
   // 한 줄씩 기다리지 않는다. 줌을 크게 바꾸면 새 숫자가 수십 개씩 한꺼번에
   // 나오는데, 순차로 기다리면 그만큼 지도 갱신이 늦어진다.
   final work = <Future<void>>[];
   for (final item in needed) {
-    final name = clusterIconName(item.count, item.approximate);
+    final name = clusterIconName(item.count, item.approximate, item.sameSpot);
     if (!added.add(name)) continue;
     work.add(
       _drawBadge(
         item.count,
         item.approximate,
+        item.sameSpot,
       ).then((bytes) => controller.addImage(name, bytes)),
     );
   }
   await Future.wait(work);
 }
 
-Future<Uint8List> _drawBadge(int count, bool approximate) async {
+Future<Uint8List> _drawBadge(int count, bool approximate, bool sameSpot) async {
   final radius = clusterRadius(count);
   const stroke = 1.5;
-  final size = (radius + stroke) * 2 * _scale;
+  // 겹친 카드가 뒤로 삐져나오는 만큼을 여유로 둔다. 안 두면 잘린다.
+  final pad = (radius + stroke) * _scale * (sameSpot ? 1.32 : 1.0);
+  final size = pad * 2;
 
   final recorder = ui.PictureRecorder();
   final canvas = ui.Canvas(recorder);
   final center = ui.Offset(size / 2, size / 2);
 
-  canvas.drawCircle(
-    center,
-    radius * _scale,
-    ui.Paint()
-      // 근사 좌표 묶음은 옅게. 위치를 믿으면 안 된다는 뜻을 색으로 말한다
-      ..color = approximate
-          ? _approxFill.withValues(alpha: 0.28)
-          : _clusterFill.withValues(alpha: 0.82),
-  );
-  canvas.drawCircle(
-    center,
-    radius * _scale,
-    ui.Paint()
-      ..style = ui.PaintingStyle.stroke
-      ..strokeWidth = stroke * _scale
-      ..color = approximate
-          ? _approxFill.withValues(alpha: 0.9)
-          : const Color(0xFFFFFFFF).withValues(alpha: 0.85),
-  );
+  final fill = ui.Paint()
+    // 근사 좌표 묶음은 옅게. 위치를 믿으면 안 된다는 뜻을 색으로 말한다
+    ..color = approximate
+        ? _approxFill.withValues(alpha: 0.28)
+        : _clusterFill.withValues(alpha: 0.82);
+  final edge = ui.Paint()
+    ..style = ui.PaintingStyle.stroke
+    ..strokeWidth = stroke * _scale
+    ..color = approximate
+        ? _approxFill.withValues(alpha: 0.9)
+        : const Color(0xFFFFFFFF).withValues(alpha: 0.85);
+
+  if (sameSpot) {
+    // **모양으로 갈라 놓는다.**
+    //
+    // 원과 이 모양은 눌렀을 때 하는 일이 다르다 — 원은 확대해서 갈라지고,
+    // 이것은 갈라지지 않아 목록이 열린다. 둘이 똑같이 생겼을 때 사용자는
+    // 숫자만큼의 점이 나오기를 기대하고 확대했다가 점 하나를 보게 된다.
+    // 실제로 그 혼동이 신고로 들어왔다.
+    //
+    // 겹친 카드로 그린다. "여러 장이 포개져 있다"는 뜻이 설명 없이 읽힌다.
+    final r = radius * _scale;
+    final radius0 = ui.Radius.circular(r * 0.42);
+    for (final offset in [r * 0.30, 0.0]) {
+      final rect = ui.RRect.fromRectAndRadius(
+        ui.Rect.fromCenter(
+          center: center + ui.Offset(offset, -offset),
+          width: r * 1.9,
+          height: r * 1.9,
+        ),
+        radius0,
+      );
+      canvas.drawRRect(rect, fill);
+      canvas.drawRRect(rect, edge);
+    }
+  } else {
+    canvas.drawCircle(center, radius * _scale, fill);
+    canvas.drawCircle(center, radius * _scale, edge);
+  }
 
   final label = clusterLabel(count);
   final painter = TextPainter(

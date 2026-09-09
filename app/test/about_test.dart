@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:realdealmap/features/about/about_sheet.dart';
 import 'package:realdealmap/theme.dart';
@@ -27,65 +26,12 @@ Widget _wrap(Widget child, {double scale = kTextScale, double width = 393}) =>
     );
 
 void main() {
-  group('상시 고지', () {
-    testWidgets('참고용이며 법적 효력이 없다고 늘 적혀 있다', (tester) async {
-      await tester.pumpWidget(_wrap(const AboutBanner()));
-
-      expect(find.text(AboutBanner.notice), findsOneWidget);
-      expect(AboutBanner.notice, contains('참고용'));
-      expect(AboutBanner.notice, contains('법적 효력'));
-    });
-
-    // 잘린 고지는 고지가 아니다.
-    //
-    // 상태바 안에 있을 때는 [kAboutBannerHeight]가 천장이었다. 화면 아래
-    // 가운데로 옮긴 뒤로는 그 천장이 없지만, **한 줄을 넘지 않는 것**은 여전히
-    // 지켜야 한다 — 두 줄이 되면 지도를 그만큼 더 가리고 탭 막대와 부딪힌다.
-    //
-    // 배율은 우리가 곱하는 2배 위에 사용자의 시스템 확대가 또 겹칠 수 있다.
-    // 그 조합까지 견뎌야 한다.
-    testWidgets('배율을 키워도 한 줄에 온전히 들어간다', (tester) async {
-      // 화면 폭. 아래 가운데에 떠 있으므로 좌우 여백을 뺄 이유가 없다.
-      const available = 393.0;
-
-      for (final scale in [1.0, kTextScale, kTextScale * 1.3]) {
-        await tester.pumpWidget(
-          _wrap(const AboutBanner(), scale: scale, width: available),
-        );
-        await tester.pumpAndSettle();
-
-        final painted = tester.renderObject<RenderParagraph>(
-          find.text(AboutBanner.notice),
-        );
-        // maxLines가 1이므로, 못 들어가면 두 번째 줄이 생기는 대신 여기가
-        // 참이 된다 — 즉 사용자는 뒷부분을 못 본다.
-        expect(
-          painted.didExceedMaxLines,
-          isFalse,
-          reason: '배율 $scale에서 고지가 잘렸다',
-        );
-        // 한 줄 + 위아래 여백. 천장이 아니라 **두 줄이 되지 않았다는 증거**로
-        // 본다 — 두 줄이면 이 값이 대략 두 배가 된다.
-        expect(
-          tester.getSize(find.byType(AboutBanner)).height,
-          lessThanOrEqualTo((kAboutBannerHeight + 4) * scale),
-          reason: '배율 $scale에서 고지가 한 줄을 넘었다',
-        );
-        expect(
-          tester.getSize(find.byType(AboutBanner)).width,
-          lessThanOrEqualTo(available),
-          reason: '배율 $scale에서 폭을 넘었다',
-        );
-      }
-    });
-
-    testWidgets('누르면 전문이 열린다', (tester) async {
-      await tester.pumpWidget(_wrap(const AboutBanner()));
-
-      await tester.tap(find.byType(AboutBanner));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(AboutSheet), findsOneWidget);
+  group('참고용 고지', () {
+    // 위젯이 아니라 **문구**를 지킨다. 배너는 사라졌지만(설정과 상세로 옮겼다)
+    // G6가 요구하는 것은 이 문장이 표시되는 것이다.
+    test('참고용이며 법적 효력이 없다고 말한다', () {
+      expect(kNotice, contains('참고용'));
+      expect(kNotice, contains('법적 효력'));
     });
   });
 

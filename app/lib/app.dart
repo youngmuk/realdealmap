@@ -15,6 +15,7 @@ import 'features/list/list_page.dart';
 import 'features/map/map_focus.dart';
 import 'features/map/map_page.dart';
 import 'features/region/region_picker.dart';
+import 'features/settings/settings_sheet.dart';
 import 'state/ads.dart';
 import 'state/app_state.dart';
 import 'theme.dart';
@@ -219,36 +220,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       unawaited(_openHere());
     });
 
-    final index = ref.watch(regionIndexProvider).value;
-    final sggCd = ref.watch(selectedRegionProvider);
-    final region = sggCd == null ? null : index?.byCode(sggCd);
-
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 16,
-        title: InkWell(
-          onTap: _pickRegion,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  // 색인이 오기 전에는 마지막으로 알던 이름을 쓴다.
-                  // **시군구 코드는 보여주지 않는다** — 사용자에게 아무 뜻이 없다.
-                  region?.displayName ??
-                      ref.watch(lastRegionNameProvider) ??
-                      (sggCd == null ? '지역 선택' : '지역 확인 중'),
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              const Icon(Icons.expand_more, size: 20),
-            ],
-          ),
-        ),
+        // 머리말 맨 윗줄은 **기준 시각**이다. 지역 이름은 아래로 내려
+        // 지도에 붙였다 — 지도를 보다 지역을 바꾸는 동선이라, 눈이 가는
+        // 자리와 누르는 자리가 가까울수록 낫다.
+        title: const _SyncLine(),
         actions: [
           IconButton(
             tooltip: '필터',
@@ -256,30 +234,31 @@ class _HomeShellState extends ConsumerState<HomeShell> {
               await FilterSheet.show(context);
               if (mounted) ref.adMoment(AdMoment.filterApplied);
             },
-            icon: const Icon(Icons.tune, size: 20),
+            // 20에서 2배. 머리말에서 누를 것이 이것 하나뿐이라 크게 둔다.
+            icon: const Icon(Icons.tune, size: 40),
           ),
         ],
         bottom: PreferredSize(
           // 글자 배율을 태운다. 30으로 고정하면 배율이 커졌을 때 기준 시각이
           // 잘려 "오프라인 (저장된 데이…"가 된다 — 잘린 경고는 경고가 아니다.
           //
-          // 기준 시각 두 줄(30)만 잡는다. **참고용 고지는 여기 없다** —
-          // 화면 아래 가운데로 옮겼다(G6는 상시 노출을 요구할 뿐 자리를
-          // 정하지 않는다). 설정이 빠진 빌드에서는 경고 줄이 하나 더 붙는다 —
-          // 자리를 안 주면 넘쳐서 잘리고, 잘린 경고는 다시 경고가 아니게 된다.
+          // 지도 바로 위에 지역 이름 한 줄(28)을 잡는다. 설정이 빠진
+          // 빌드에서는 경고 줄이 하나 더 붙는다 — 자리를 안 주면 넘쳐서
+          // 잘리고, 잘린 경고는 경고가 아니게 된다.
           preferredSize: Size.fromHeight(
             MediaQuery.textScalerOf(context).scale(
-              30 +
+              28 +
                   ref.watch(configProvider).issues.length *
                       (kConfigWarningHeight + 2),
             ),
           ),
-          child: const _StatusBar(),
+          child: _RegionBar(onTap: _pickRegion),
         ),
       ),
-      // 고지를 본문 **위에 겹친다.** 탭 안에 각각 두면 지도와 목록 양쪽에
-      // 같은 것을 놓아야 하고, 한쪽을 고치면서 다른 쪽을 잊게 된다.
-      // 여기 한 곳에 두면 어느 탭에서든 늘 보이는 것이 구조로 보장된다.
+      // 설정 버튼을 본문 **위에 겹친다.** 탭 안에 각각 두면 지도와 목록
+      // 양쪽에 같은 것을 놓아야 하고, 한쪽을 고치면서 다른 쪽을 잊게 된다.
+      // 여기 한 곳에 두면 어느 탭에서든 닿는 것이 구조로 보장된다 —
+      // 참고용 고지가 그 안에 있으므로 이 보장이 곧 G6를 지키는 방식이다.
       body: Stack(
         children: [
           IndexedStack(
@@ -289,12 +268,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
               const ListPage(),
             ],
           ),
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 8,
-            child: Center(child: AboutBanner()),
-          ),
+          Positioned(right: 12, bottom: 12, child: _SettingsButton()),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -377,54 +351,45 @@ class ConfigWarning extends ConsumerWidget {
   }
 }
 
-class _StatusBar extends ConsumerWidget {
-  const _StatusBar();
+/// 머리말 맨 윗줄 — 데이터 기준 시각 (T5.8).
+///
+/// 실거래가는 값이 시각에 매인 데이터다. "언제 것인지"를 감추면 사용자는
+/// 지금 시세로 읽는다. 갱신 중·오프라인도 여기서 같이 말한다 —
+/// 조용히 실패해서 옛 데이터를 새것처럼 보여주는 것이 가장 나쁘다.
+///
+/// **누를 수 없다.** 전에는 이 줄 전체가 [AboutSheet]로 가는 자리였는데,
+/// 고지가 설정으로 옮겨 가면서 그 뜻이 없어졌다. 눌러도 아무 일이 없는 것보다
+/// 누를 곳처럼 보이지 않는 편이 낫다.
+class _SyncLine extends ConsumerWidget {
+  const _SyncLine();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sync = ref.watch(syncProvider);
     final (text, color) = _message(sync);
 
-    // **상태바 전체가 누를 자리다.**
-    //
-    // 고지 한 줄만 누를 수 있게 두면 그 자리가 18dp라 손가락으로 겨냥하기
-    // 어렵다(안드로이드 권고 48dp). 줄을 키우면 지도가 그만큼 줄어든다.
-    // 대신 이미 자리를 차지하고 있는 기준 시각 줄까지 같은 자리로 묶었다 —
-    // 기준 시각이 무엇인지도 [AboutSheet]가 설명하므로 뜻도 어긋나지 않는다.
-    // 안쪽 [AboutBanner]의 InkWell은 그대로 둔다. 같은 곳으로 가므로
-    // 어느 쪽이 먼저 받든 결과가 같다.
-    return InkWell(
-      onTap: () => AboutSheet.show(context),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                if (sync.running)
-                  const SizedBox(
-                    width: 10,
-                    height: 10,
-                    child: CircularProgressIndicator(strokeWidth: 1.6),
-                  ),
-                if (sync.running) const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    text,
-                    style: TextStyle(fontSize: 11.5, color: color),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const ConfigWarning(),
-          ],
+    return Row(
+      children: [
+        if (sync.running) ...[
+          const SizedBox(
+            width: 9,
+            height: 9,
+            child: CircularProgressIndicator(strokeWidth: 1.5),
+          ),
+          const SizedBox(width: 6),
+        ],
+        Expanded(
+          child: Text(
+            text,
+            // 11.5의 60%. 이 줄은 **읽으라고 있는 것이 아니라 확인하라고**
+            // 있다 — 평소에는 눈에 걸리지 않다가 오프라인일 때만 보이면 된다.
+            // 앱 전체가 글자를 2배로 키우므로 화면에서는 13.8pt로 나온다.
+            style: TextStyle(fontSize: 6.9, color: color),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
-      ),
+      ],
     );
   }
 
@@ -447,4 +412,84 @@ class _StatusBar extends ConsumerWidget {
       _ => (base, Palette.ink3),
     };
   }
+}
+
+/// 지도 바로 위 — 지역 이름과 설정 경고.
+///
+/// 지도에 붙여 둔다. 지도를 보다 지역을 바꾸는 동선이라, 눈이 가는 자리와
+/// 누르는 자리가 가까울수록 낫다. 머리말 맨 위에 있을 때는 기준 시각과
+/// 나란히 놓여 둘 다 상태 표시처럼 읽혔다.
+class _RegionBar extends ConsumerWidget {
+  const _RegionBar({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sggCd = ref.watch(selectedRegionProvider);
+    final region = ref.watch(regionIndexProvider).value?.byCode(sggCd ?? '');
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: onTap,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    // 색인이 오기 전에는 마지막으로 알던 이름을 쓴다.
+                    // **시군구 코드는 보여주지 않는다** — 사용자에게 아무 뜻이 없다.
+                    region?.displayName ??
+                        ref.watch(lastRegionNameProvider) ??
+                        (sggCd == null ? '지역 선택' : '지역 확인 중'),
+                    overflow: TextOverflow.ellipsis,
+                    // 18의 90%.
+                    style: const TextStyle(
+                      fontSize: 16.2,
+                      fontWeight: FontWeight.w800,
+                      color: Palette.ink,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.expand_more, size: 18),
+              ],
+            ),
+          ),
+          const ConfigWarning(),
+        ],
+      ),
+    );
+  }
+}
+
+/// 오른쪽 아래에 늘 떠 있는 설정 버튼.
+///
+/// 지도와 목록 두 탭 위에 함께 겹쳐 두므로 어디서든 한 번에 닿는다.
+/// 참고용 고지가 그 안에 있어, **이 버튼에 닿는다는 것이 곧 고지가
+/// 표시된다는 뜻**이 된다 (G6).
+class _SettingsButton extends StatelessWidget {
+  const _SettingsButton();
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Palette.surface.withValues(alpha: 0.94),
+    shape: const CircleBorder(),
+    clipBehavior: Clip.antiAlias,
+    elevation: 1,
+    child: InkWell(
+      onTap: () => SettingsSheet.show(context),
+      // 안드로이드 권고 최소 탭 영역. 아이콘만 두면 겨냥하기 어렵다.
+      child: const SizedBox(
+        width: 44,
+        height: 44,
+        child: Icon(Icons.settings_outlined, size: 22, color: Palette.slate),
+      ),
+    ),
+  );
 }

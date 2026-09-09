@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:realdealmap/data/db/database.dart';
 import 'package:realdealmap/features/map/cluster.dart';
+import 'package:realdealmap/features/map/cluster_icons.dart';
 
 MapPin _pin(
   String id,
@@ -23,6 +24,8 @@ MapPin _pin(
 );
 
 void main() {
+  _iconNames();
+
   test('빈 입력은 빈 결과', () {
     expect(clusterPins(const [], 13), isEmpty);
   });
@@ -203,5 +206,29 @@ void main() {
     ], 12);
 
     expect(south.length, north.length);
+  });
+}
+
+// 아이콘 이름이 갈리지 않으면 두 종류가 같은 그림으로 그려진다.
+// 그러면 사용자는 확대하면 갈라지는 원과 갈라지지 않는 묶음을 구별할 수 없고,
+// 숫자만큼의 점을 기대했다가 하나를 보게 된다 — 실제로 신고된 혼동이다.
+void _iconNames() {
+  group('묶음 아이콘 이름', () {
+    test('같은 자리 묶음은 다른 이름을 받는다', () {
+      expect(
+        clusterIconName(39, false, true),
+        isNot(clusterIconName(39, false, false)),
+      );
+    });
+
+    test('근사 여부와 같은 자리 여부가 각각 갈린다', () {
+      final names = {
+        clusterIconName(39, false, false),
+        clusterIconName(39, false, true),
+        clusterIconName(39, true, false),
+        clusterIconName(39, true, true),
+      };
+      expect(names, hasLength(4));
+    });
   });
 }

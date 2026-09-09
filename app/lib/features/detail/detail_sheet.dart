@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/db/database.dart';
 import '../../theme.dart';
+import '../about/about_sheet.dart';
 import '../map/map_focus.dart';
 import 'detail_model.dart';
 
@@ -80,10 +81,49 @@ class DetailSheet extends StatelessWidget {
             _Table(section.rows),
           ],
           if (detail.raw.isNotEmpty) _RawBlock(detail.raw),
+          // 참고용 고지 (G6).
+          //
+          // **금액을 실제로 읽는 자리가 여기다.** 머리말에 상시 노출하던 것을
+          // 걷으면서, 감추는 대신 뜻이 있는 자리로 옮겼다 — 숫자를 본 사람이
+          // 그 숫자를 어떻게 받아들여야 하는지 같은 화면에서 읽는다.
+          const _Notice(),
         ],
       ),
     );
   }
+}
+
+class _Notice extends StatelessWidget {
+  const _Notice();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 22),
+    child: Center(
+      child: InkWell(
+        onTap: () => AboutSheet.show(context),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                kNotice,
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  color: Palette.slate,
+                  fontWeight: FontWeight.w600,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.info_outline, size: 11, color: Palette.slate),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _Grip extends StatelessWidget {

@@ -401,7 +401,13 @@ class _MapPageState extends ConsumerState<MapPage> {
       controller,
       clustered
           .where((f) => f.isCluster)
-          .map((f) => (count: f.count, approximate: f.approximate)),
+          .map(
+            (f) => (
+              count: f.count,
+              approximate: f.approximate,
+              sameSpot: f.sameSpot,
+            ),
+          ),
       _icons,
     );
     if (!mounted || seq != _viewportSeq) return;
@@ -756,7 +762,8 @@ Map<String, dynamic> _toCollection(List<MapFeature> features) => {
           // 확대해도 갈라지지 않는 묶음인가. 파고들지 목록을 열지가 갈린다
           'stack': f.sameSpot ? 1 : 0,
           'count': f.count,
-          if (f.isCluster) 'icon': clusterIconName(f.count, f.approximate),
+          if (f.isCluster)
+            'icon': clusterIconName(f.count, f.approximate, f.sameSpot),
           // 묶음을 눌렀을 때 파고들 자리. 렌더링된 피처에서 좌표를 되읽는 것보다
           // 여기 실어 두는 편이 확실하다
           'lat': f.lat,
