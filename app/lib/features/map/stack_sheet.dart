@@ -21,6 +21,11 @@ class StackSheet extends StatelessWidget {
 
   final List<TxRow> rows;
 
+  /// 이 묶음이 법정동 근사인가. 하나라도 근사면 참이다 —
+  /// [MapFeature.approximate]와 같은 규칙이라야 지도의 색과 설명이 어긋나지 않는다.
+  bool get approximate =>
+      rows.any((r) => r.precision == 'partial' || r.precision == 'umd');
+
   static Future<void> show(BuildContext context, List<TxRow> rows) =>
       showModalBottomSheet(
         context: context,
@@ -54,7 +59,9 @@ class StackSheet extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '이 자리의 거래 ${formatCount(rows.length)}건',
+                  approximate
+                      ? '이 동네의 거래 ${formatCount(rows.length)}건'
+                      : '이 자리의 거래 ${formatCount(rows.length)}건',
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -65,14 +72,22 @@ class StackSheet extends StatelessWidget {
             ],
           ),
         ),
-        // 같은 지번이라 주소로는 갈리지 않는다. 무엇으로 고르는지 말해 준다.
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 0, 16, 10),
+        // **왜 겹쳤는지가 두 가지다.** 같은 이유로 뭉뚱그리면 거짓말이 된다 —
+        // 근사 묶음은 지번이 서로 다른데 좌표를 못 만들어 동 중심에 모아 둔
+        // 것이지, 같은 건물이 아니다.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              '같은 지번이라 지도에서 한 점으로 겹칩니다',
-              style: TextStyle(fontSize: 11.5, color: Palette.ink3),
+              approximate
+                  ? '지번을 몰라 법정동 중심에 모아 둔 거래입니다. '
+                        '서로 다른 곳일 수 있고, 실제 위치는 이 자리가 아닙니다'
+                  : '같은 지번이라 지도에서 한 점으로 겹칩니다',
+              style: TextStyle(
+                fontSize: 11.5,
+                color: approximate ? Palette.warn : Palette.ink3,
+              ),
             ),
           ),
         ),

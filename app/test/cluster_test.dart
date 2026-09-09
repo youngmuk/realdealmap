@@ -24,6 +24,8 @@ MapPin _pin(
 );
 
 void main() {
+  _stackKinds();
+
   _iconNames();
 
   test('빈 입력은 빈 결과', () {
@@ -229,6 +231,34 @@ void _iconNames() {
         clusterIconName(39, true, true),
       };
       expect(names, hasLength(4));
+    });
+  });
+}
+
+// 근사 묶음은 **같은 건물이 아니다.** 지번이 서로 다른데 좌표를 못 만들어
+// 법정동 중심에 모아 둔 것이다. 두 경우를 같은 문장으로 설명하면 거짓이 된다.
+void _stackKinds() {
+  group('겹침의 이유', () {
+    test('근사 묶음은 approximate로 표시된다', () {
+      final pins = [
+        for (var i = 0; i < 5; i++)
+          _pin('u$i', 37.5806, 127.0503, precision: 'umd'),
+      ];
+
+      final result = clusterPins(pins, 22).single;
+
+      expect(result.count, 5);
+      expect(result.approximate, isTrue);
+      expect(result.sameSpot, isTrue);
+    });
+
+    test('정확 좌표 묶음은 approximate가 아니다', () {
+      final pins = [for (var i = 0; i < 5; i++) _pin('e$i', 37.5806, 127.0503)];
+
+      final result = clusterPins(pins, 22).single;
+
+      expect(result.approximate, isFalse);
+      expect(result.sameSpot, isTrue);
     });
   });
 }

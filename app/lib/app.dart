@@ -255,29 +255,38 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           child: _RegionBar(onTap: _pickRegion),
         ),
       ),
-      // 설정 버튼을 본문 **위에 겹친다.** 탭 안에 각각 두면 지도와 목록
-      // 양쪽에 같은 것을 놓아야 하고, 한쪽을 고치면서 다른 쪽을 잊게 된다.
-      // 여기 한 곳에 두면 어느 탭에서든 닿는 것이 구조로 보장된다 —
-      // 참고용 고지가 그 안에 있으므로 이 보장이 곧 G6를 지키는 방식이다.
-      body: Stack(
+      body: IndexedStack(
+        index: _tab,
         children: [
-          IndexedStack(
-            index: _tab,
-            children: [
-              MapPage(onShowList: () => _showTab(1)),
-              const ListPage(),
-            ],
-          ),
-          Positioned(right: 12, bottom: 12, child: _SettingsButton()),
+          MapPage(onShowList: () => _showTab(1)),
+          const ListPage(),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        height: 58,
-        selectedIndex: _tab,
-        onDestinationSelected: _showTab,
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.map_outlined), label: '지도'),
-          NavigationDestination(icon: Icon(Icons.list_alt), label: '목록'),
+      // 설정을 **탭 막대 옆**에 둔다. 지도 위에 띄워 두면 그 아래 마커를
+      // 가리고, 지도를 움직이다 잘못 누르기도 한다. 여기 두면 어느 탭에서든
+      // 같은 자리에 있으면서 지도를 한 픽셀도 덮지 않는다 —
+      // 참고용 고지가 그 안에 있으므로 이 자리가 곧 G6를 지키는 방식이다.
+      //
+      // **NavigationDestination으로 넣지 않는다.** 그러면 세 번째 탭처럼
+      // 보이는데 실제로는 시트를 열 뿐 화면을 바꾸지 않는다. 선택 표시가
+      // 생겼다 사라지는 것을 사용자는 고장으로 읽는다.
+      bottomNavigationBar: Row(
+        children: [
+          Expanded(
+            child: NavigationBar(
+              height: 58,
+              selectedIndex: _tab,
+              onDestinationSelected: _showTab,
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.map_outlined),
+                  label: '지도',
+                ),
+                NavigationDestination(icon: Icon(Icons.list_alt), label: '목록'),
+              ],
+            ),
+          ),
+          const _SettingsButton(),
         ],
       ),
     );
@@ -381,10 +390,10 @@ class _SyncLine extends ConsumerWidget {
         Expanded(
           child: Text(
             text,
-            // 11.5의 60%. 이 줄은 **읽으라고 있는 것이 아니라 확인하라고**
-            // 있다 — 평소에는 눈에 걸리지 않다가 오프라인일 때만 보이면 된다.
-            // 앱 전체가 글자를 2배로 키우므로 화면에서는 13.8pt로 나온다.
-            style: TextStyle(fontSize: 6.9, color: color),
+            // 6.9에서 2배. 60%로 줄였더니 실기기에서 너무 작았다 —
+            // 확인하려고 있는 줄이라도 읽히기는 해야 한다.
+            // 앱 전체가 글자를 2배로 키우므로 화면에서는 27.6pt로 나온다.
+            style: TextStyle(fontSize: 13.8, color: color),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -468,26 +477,23 @@ class _RegionBar extends ConsumerWidget {
   }
 }
 
-/// 오른쪽 아래에 늘 떠 있는 설정 버튼.
+/// 탭 막대 오른쪽 끝의 설정 버튼.
 ///
-/// 지도와 목록 두 탭 위에 함께 겹쳐 두므로 어디서든 한 번에 닿는다.
-/// 참고용 고지가 그 안에 있어, **이 버튼에 닿는다는 것이 곧 고지가
-/// 표시된다는 뜻**이 된다 (G6).
+/// 지도와 목록 어느 탭에서든 같은 자리에 있다. 참고용 고지가 그 안에 있어,
+/// **이 버튼에 닿는다는 것이 곧 고지가 표시된다는 뜻**이 된다 (G6).
 class _SettingsButton extends StatelessWidget {
   const _SettingsButton();
 
   @override
   Widget build(BuildContext context) => Material(
-    color: Palette.surface.withValues(alpha: 0.94),
-    shape: const CircleBorder(),
-    clipBehavior: Clip.antiAlias,
-    elevation: 1,
+    // 탭 막대와 같은 바탕이라야 한 줄로 이어져 보인다.
+    color: Theme.of(context).navigationBarTheme.backgroundColor,
     child: InkWell(
       onTap: () => SettingsSheet.show(context),
-      // 안드로이드 권고 최소 탭 영역. 아이콘만 두면 겨냥하기 어렵다.
+      // 탭 막대와 같은 높이(58). 옆에 서는 것이라 높이가 어긋나면 눈에 띈다.
       child: const SizedBox(
-        width: 44,
-        height: 44,
+        width: 58,
+        height: 58,
         child: Icon(Icons.settings_outlined, size: 22, color: Palette.slate),
       ),
     ),
