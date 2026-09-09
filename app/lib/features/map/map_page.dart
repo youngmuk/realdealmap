@@ -59,7 +59,8 @@ const _labelLayer = 'deal-labels';
 /// 아니라 그 아래 원이 열려야 한다.
 const _hitLayers = [_pinLayer, _clusterLayer, _approxLayer];
 
-class _MapPageState extends ConsumerState<MapPage> {
+class _MapPageState extends ConsumerState<MapPage>
+    with WidgetsBindingObserver {
   ml.MapLibreMapController? _controller;
   bool _styleReady = false;
   Timer? _regionDebounce;
@@ -88,6 +89,19 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// 위치 조회는 최대 8초가 걸릴 수 있고, 그동안 아무 표시가 없으면
   /// 사용자는 눌리지 않은 줄 알고 다시 누른다.
   bool _locating = false;
+
+  /// 위치를 찾는 동안 앱이 화면 맨 앞을 내줬는가.
+  ///
+  /// 권한 창이 뜨면 플랫폼 뷰가 올라앉은 가상 디스플레이가 무너지는 일이
+  /// 있다 — 실기기에서 정밀 위치를 허용한 직후 **지도만 하얗게 비었다**
+  /// (logcat: `dequeueBuffer failed for display [flutter-vd#0] error -19`).
+  /// 스타일은 이미 준비된 뒤라 [StyleWatchdog]은 이것을 못 잡는다.
+  /// 앱을 껐다 켜면 돌아오므로, 같은 일을 뷰에만 해 준다.
+  bool _lostFocusWhileLocating = false;
+
+  /// 뷰를 새로 만든 뒤 데려갈 자리. 새 컨트롤러가 준비되면 그때 옮긴다.
+  ml.LatLng? _pendingTarget;
+  double? _pendingZoom;
 
   /// 저장된 카메라가 없던 첫 진입인가. 있으면 사용자가 보던 자리를 지킨다 —
   /// 위치를 잡았다고 보던 화면을 빼앗지 않는다.
@@ -119,15 +133,39 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// 지도가 멈췄다. 플랫폼 뷰를 통째로 새로 만든다.
   void _recreateMap() {
     if (!mounted || _styleReady) return;
+    _remakeView();
+  }
+
+  /// 스타일이 준비됐든 아니든 뷰를 새로 만든다.
+  ///
+  /// 스타일은 멀쩡한데 **그리는 면이 죽는** 경우가 있어서 따로 둔다.
+  /// [_recreateMap]의 `_styleReady` 가드는 그때 오히려 방해가 된다.
+  void _remakeView() {
+    if (!mounted) return;
     setState(() {
       _mapGeneration++;
       _controller = null;
+      _styleReady = false;
       _icons.clear();
     });
   }
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_locating && state != AppLifecycleState.resumed) {
+      _lostFocusWhileLocating = true;
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _regionDebounce?.cancel();
     _viewportDebounce?.cancel();
     _filterDebounce?.cancel();
@@ -337,6 +375,18 @@ class _MapPageState extends ConsumerState<MapPage> {
     // 한 번 살아났으면 다음 사고에는 다시 세 번의 기회를 준다.
     _watchdog.recovered();
     await _syncViewport();
+
+    // 뷰를 새로 만드느라 미뤄 둔 자리가 있으면 이제 간다. 여기서 하지 않으면
+    // 사용자는 버튼을 눌렀는데 지도가 처음 자리에 그대로 있는 것을 본다.
+    final target = _pendingTarget;
+    final zoom = _pendingZoom;
+    if (target != null && zoom != null) {
+      _pendingTarget = null;
+      _pendingZoom = null;
+      await controller.animateCamera(
+        ml.CameraUpdate.newLatLngZoom(target, zoom),
+      );
+    }
   }
 
   void _onCameraIdle() {
@@ -662,6 +712,7 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// 묶여 있기 때문이다(`_syncViewport`).
   Future<void> _goToMyLocation() async {
     if (_locating) return;
+    _lostFocusWhileLocating = false;
     setState(() => _locating = true);
     try {
       final result = await locateHere(
@@ -691,19 +742,29 @@ class _MapPageState extends ConsumerState<MapPage> {
           // **정밀 위치가 아니면 깊이 들어가지 않는다.** 대략 위치는 1~2km
           // 격자로 뭉갠 값이라, 줌 16(화면 폭 수백 m)으로 열면 사용자는 자기가
           // 서 있지도 않은 골목을 자기 자리로 읽는다. 동 단위로만 보여준다.
-          await _controller?.animateCamera(
-            ml.CameraUpdate.newLatLngZoom(
-              ml.LatLng(lat, lng),
-              precise ? kFocusZoom : 13.5,
-            ),
-          );
-          if (!mounted) return;
+          final target = ml.LatLng(lat, lng);
+          final zoom = precise ? kFocusZoom : 13.5;
+
+          // **할 말은 먼저 한다.** 아래에서 뷰를 새로 만드는 갈래는 그대로
+          // 빠져나가므로, 뒤에 두면 그 경우에만 안내가 사라진다.
           if (region == null) {
             _say('현재 위치 근처에는 아직 배포된 지역이 없습니다.');
           } else if (!precise) {
             // 조용히 넘어가면 어긋난 자리를 정확한 자리로 읽는다.
             _say('대략적인 위치입니다. 정확한 위치를 허용하면 더 가깝게 갑니다.');
           }
+
+          // 권한 창이 떴다 사라졌으면 그리는 면이 죽어 있을 수 있다.
+          // 뷰를 새로 만들고, 옮기는 것은 새 스타일이 설 때까지 미룬다.
+          if (_lostFocusWhileLocating) {
+            _pendingTarget = target;
+            _pendingZoom = zoom;
+            _remakeView();
+            return;
+          }
+          await _controller?.animateCamera(
+            ml.CameraUpdate.newLatLngZoom(target, zoom),
+          );
       }
     } finally {
       if (mounted) setState(() => _locating = false);
