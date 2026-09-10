@@ -50,35 +50,68 @@ jobs:
       - name: 배치 성공률
         run: |
           since=$(date -u -d '7 days ago' +%Y-%m-%d)
+          api() {
+            curl -sS -H "authorization: Bearer $GH_TOKEN" \
+              -H 'accept: application/vnd.github+json' "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/$1"
+          }
+
+          # 7일치를 쪽 단위로 전부 모은다. 한 쪽(100건)만 보던 때는 앱이 부르는
+          # refresh-region이 하루 60건을 넘기면서 이틀치도 안 담겼다.
+          # 워크플로가 한 번도 안 돌았으면 404라 비어 있는 채로 끝난다.
+          runs_of() {
+            local page=1 all='[]' batch
+            while [ "$page" -le 10 ]; do
+              batch=$(api "actions/workflows/$1/runs?per_page=100&page=$page&created=>=$since")
+              echo "$batch" | jq -e '.workflow_runs' > /dev/null 2>&1 || break
+              # 시험 실행은 아무것도 올리지 않으므로 세지 않는다. 남겨 두면 원천에
+              # 닿지 못한 시험 실행이 재시도 없이 성공으로 끝나 "배포"로 잡힌다.
+              all=$(jq -c --argjson a "$all" \
+                '$a + [.workflow_runs[] | select(.display_title | endswith("(시험)") | not)
+                       | {id, conclusion, title: .display_title}]' <<< "$batch")
+              [ "$(jq '.workflow_runs | length' <<< "$batch")" -lt 100 ] && break
+              page=$((page + 1))
+            done
+            echo "$all"
+          }
+
           {
             echo ""
             echo "### 배치 (최근 7일)"
             echo ""
-            echo "| 워크플로 | 성공 | 실패 | 성공률 |"
-            echo "| --- | --- | --- | --- |"
+            echo "| 워크플로 | 요청 | 배포 | 원천 불통 | 실패 | 성공률 |"
+            echo "| --- | --- | --- | --- | --- | --- |"
           } >> /tmp/metrics.md
 
           for wf in refresh-region.yml backfill.yml; do
-            # per_page 100이면 하루 4회 도는 워크플로의 7일치가 들어간다.
-            runs=$(curl -sS -H "authorization: Bearer $GH_TOKEN" \
-              -H 'accept: application/vnd.github+json' \
-              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?per_page=100&created=>=$since")
+            runs=$(runs_of "$wf")
+            ok=$(jq '[.[] | select(.conclusion=="success")] | length' <<< "$runs")
+            bad=$(jq '[.[] | select(.conclusion=="failure" or .conclusion=="timed_out")] | length' <<< "$runs")
+            total=$((ok + bad))
+            requests=$total; deployed=$ok; down='—'
 
-            # 워크플로가 아직 한 번도 안 돌았으면 404가 온다. 없는 것은 없다고 적는다.
-            if ! echo "$runs" | jq -e '.workflow_runs' > /dev/null 2>&1; then
-              echo "| $wf | — | — | 실행 없음 |" >> /tmp/metrics.md
-              continue
+            # refresh-region은 원천 불통을 성공으로 끝내고 새 러너에서 한 번 더 돈다.
+            # 결론만 세면 불통이 성공으로 잡히므로 풀어서 센다.
+            #   재시도 실행 수 = 1차에서 닿지 못한 수 (하나당 재시도가 하나)
+            #   재시도에서도 닿지 못한 수 = 재시도 실행 중 "원천 불통" 단계가 돈 것
+            # 잡 조회는 재시도 실행에만 한다. 전부 조회하면 토큰 한도(시간당 1,000)에 닿는다.
+            if [ "$wf" = refresh-region.yml ] && [ "$total" -gt 0 ]; then
+              retried=$(jq '[.[] | select(.title | endswith("(재시도)"))] | length' <<< "$runs")
+              still=0
+              for id in $(jq -r '.[] | select((.title | endswith("(재시도)")) and .conclusion=="success") | .id' <<< "$runs"); do
+                step=$(api "actions/runs/$id/jobs" | jq -r '[.jobs[].steps[]? | select(.name=="원천 불통") | .conclusion] | first // ""')
+                [ "$step" = success ] && still=$((still + 1))
+              done
+              requests=$((total - retried))
+              deployed=$((ok - retried - still))
+              down="$still (재시도 $retried)"
             fi
 
-            ok=$(echo "$runs" | jq '[.workflow_runs[] | select(.conclusion=="success")] | length')
-            bad=$(echo "$runs" | jq '[.workflow_runs[] | select(.conclusion=="failure" or .conclusion=="timed_out")] | length')
-            total=$((ok + bad))
-            if [ "$total" -eq 0 ]; then
+            if [ "$requests" -le 0 ]; then
               rate='실행 없음'
             else
-              rate=$(awk "BEGIN{printf \"%.1f%%\", $ok*100/$total}")
+              rate=$(awk "BEGIN{printf \"%.1f%%\", $deployed*100/$requests}")
             fi
-            echo "| $wf | $ok | $bad | $rate |" >> /tmp/metrics.md
+            echo "| $wf | $requests | $deployed | $down | $bad | $rate |" >> /tmp/metrics.md
           done
 
           # 아직 못 재는 것은 못 잰다고 적는다. 표에 없으면 괜찮은 줄로 읽힌다.
