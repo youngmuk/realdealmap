@@ -11,47 +11,15 @@ library;
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'geo.dart';
+import 'region_boundaries.dart';
 import 'remote.dart';
 
+// 좌표·상자는 경계 폴리곤과 함께 쓴다. 쓰던 곳이 import를 고치지 않아도
+// 되도록 여기서 다시 내보낸다.
+export 'geo.dart';
+
 const int kSupportedIndexVersion = 1;
-
-class LatLng {
-  const LatLng(this.lat, this.lng);
-  final double lat;
-  final double lng;
-}
-
-class BoundingBox {
-  const BoundingBox({
-    required this.south,
-    required this.north,
-    required this.west,
-    required this.east,
-  });
-
-  final double south;
-  final double north;
-  final double west;
-  final double east;
-
-  bool contains(LatLng p) =>
-      p.lat >= south && p.lat <= north && p.lng >= west && p.lng <= east;
-
-  static BoundingBox? tryFrom(Map<String, dynamic>? json) {
-    if (json == null) return null;
-    final s = json['south'],
-        n = json['north'],
-        w = json['west'],
-        e = json['east'];
-    if (s is! num || n is! num || w is! num || e is! num) return null;
-    return BoundingBox(
-      south: s.toDouble(),
-      north: n.toDouble(),
-      west: w.toDouble(),
-      east: e.toDouble(),
-    );
-  }
-}
 
 class RegionSummary {
   const RegionSummary({
@@ -166,14 +134,30 @@ class RegionIndex {
 
   /// 이 자리를 담는 지역.
   ///
-  /// 경계상자는 실제 경계가 아니라 **거래가 퍼져 있는 범위**라 이웃끼리 겹친다.
-  /// 여럿이 걸리면 중심이 가장 가까운 것을 고른다 — 상자 한가운데 있을수록
-  /// 그 지역일 가능성이 크다.
+  /// [boundaries]가 있으면 **진짜 행정 경계**로 따진다. 없을 때만 경계상자로
+  /// 떨어진다 &mdash; 상자는 실제 경계가 아니라 거래가 퍼져 있는 범위라
+  /// 이웃끼리 겹치고, 전국 표본에서 9.84%가 틀렸다(근거는 [RegionBoundaries]).
+  /// 경계는 앱에 넣어 두므로 없는 경우는 에셋이 빠진 빌드뿐인데, 그때 위치
+  /// 기능을 통째로 잃는 것보다 예전만큼이라도 도는 편이 낫다.
   ///
-  /// 하나도 담지 못하면 `null`이다. **가장 가까운 것을 억지로 고르지 않는다.**
+  /// 담는 지역이 없으면 `null`이다. **가장 가까운 것을 억지로 고르지 않는다.**
   /// 아직 배포하지 않은 지역 위에 있는 것인데 엉뚱한 지역 데이터를 보여주면
   /// 사용자는 그 자리의 실거래라고 믿는다.
-  RegionSummary? at(LatLng point) {
+  ///
+  /// [boundaries]를 이름 없는 인자로 둔 것은 일부러다. 빼먹으면 조용히 옛
+  /// 방식으로 돌기 때문에 부르는 쪽이 매번 눈으로 보고 넘겨야 한다.
+  RegionSummary? at(LatLng point, RegionBoundaries? boundaries) {
+    if (boundaries != null && !boundaries.isEmpty) {
+      final code = boundaries.resolve(point);
+      // 경계는 전국 256개를 다 알지만 색인은 배포된 지역만 안다. 경계가
+      // 짚어 준 곳이 색인에 없으면 담긴 지역이 없는 것과 같다.
+      return code == null ? null : byCode(code);
+    }
+    return _atByBox(point);
+  }
+
+  /// 경계가 없을 때 쓰는 옛 방식. 여럿이 걸리면 중심이 가장 가까운 것을 고른다.
+  RegionSummary? _atByBox(LatLng point) {
     RegionSummary? best;
     var bestDistance = double.infinity;
 
@@ -195,8 +179,12 @@ class RegionIndex {
   ///
   /// [maxDegrees]는 대략 1도 = 111 km다. 기본 1.0도면 부산에 있는데 서울을
   /// 열어 주는 일은 없다 — 그 경우 `null`이고 앱은 지역 선택을 띄운다.
-  RegionSummary? nearest(LatLng point, {double maxDegrees = 1.0}) {
-    final inside = at(point);
+  RegionSummary? nearest(
+    LatLng point,
+    RegionBoundaries? boundaries, {
+    double maxDegrees = 1.0,
+  }) {
+    final inside = at(point, boundaries);
     if (inside != null) return inside;
 
     RegionSummary? best;

@@ -149,9 +149,15 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       return;
     }
 
+    // 경계는 앱 안에 있어 네트워크를 기다리지 않는다. 첫 실행에서 여기가
+    // 색인 다음으로 오는 자리라, 여기서 처음 읽고 그 뒤로는 이미 읽은 것을 쓴다.
+    final boundaries = await ref.read(regionBoundariesProvider.future);
+    if (!mounted) return;
+
     final index = ref.read(regionIndexProvider).value;
     final point = LatLng(fix.lat, fix.lng);
-    final region = index?.at(point) ?? index?.nearest(point);
+    final region =
+        index?.at(point, boundaries) ?? index?.nearest(point, boundaries);
     if (region == null || !mounted) return;
 
     ref

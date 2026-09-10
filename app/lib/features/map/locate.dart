@@ -13,6 +13,7 @@
 library;
 
 import '../../data/location.dart';
+import '../../data/sync/region_boundaries.dart';
 import '../../data/sync/region_index.dart';
 
 /// 위치 찾기의 결과. 화면은 이것만 보고 무엇을 할지 정한다.
@@ -53,9 +54,13 @@ final class LocateNoIndex extends LocateResult {
   const LocateNoIndex();
 }
 
+/// [boundaries]는 앱에 넣어 둔 시군구 경계다. 없어도 되지만 그때는 경계상자로
+/// 떨어져 이웃 구가 나올 수 있다 — 실기기에서 광진구에 서서 동대문구를 받은
+/// 것이 그 경우다.
 Future<LocateResult> locateHere(
   LocationSource source,
   RegionIndex? index,
+  RegionBoundaries? boundaries,
 ) async {
   if (index == null || index.isEmpty) return const LocateNoIndex();
 
@@ -69,7 +74,7 @@ Future<LocateResult> locateHere(
   return Located(
     fix.lat,
     fix.lng,
-    index.at(point) ?? index.nearest(point),
+    index.at(point, boundaries) ?? index.nearest(point, boundaries),
     precise: fix.precise,
   );
 }

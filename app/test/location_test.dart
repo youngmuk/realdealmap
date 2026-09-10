@@ -65,7 +65,7 @@ void main() {
   final index = RegionIndex([gangnam, busanjin]);
 
   test('담는 지역이 있으면 그곳을 연다', () {
-    final found = index.at(const LatLng(37.50, 127.03));
+    final found = index.at(const LatLng(37.50, 127.03), null);
 
     expect(found?.sggCd, '11680');
   });
@@ -75,23 +75,23 @@ void main() {
   test('담는 지역이 없으면 가장 가까운 곳으로 간다', () {
     final point = const LatLng(37.60, 127.10); // 강남구 밖, 그러나 가깝다
 
-    expect(index.at(point), isNull);
-    expect(index.nearest(point)?.sggCd, '11680');
+    expect(index.at(point, null), isNull);
+    expect(index.nearest(point, null)?.sggCd, '11680');
   });
 
   // 서울에 있는 사용자에게 부산을 열어 주면 자기 동네로 오해한다.
   test('너무 멀면 아무 곳도 고르지 않는다', () {
     final pacific = const LatLng(20.0, 150.0);
 
-    expect(index.at(pacific), isNull);
-    expect(index.nearest(pacific), isNull);
+    expect(index.at(pacific, null), isNull);
+    expect(index.nearest(pacific, null), isNull);
   });
 
   test('경도는 위도에 따라 좁혀 잰다', () {
     // 위도 37도에서 경도 1도는 위도 1도보다 짧다. 보정하지 않으면 동서로
     // 떨어진 지역이 남북으로 같은 거리인 지역보다 가깝다고 나온다.
-    final nearInLng = index.nearest(const LatLng(37.4979, 127.60));
-    final nearInLat = index.nearest(const LatLng(38.10, 127.0276));
+    final nearInLng = index.nearest(const LatLng(37.4979, 127.60), null);
+    final nearInLat = index.nearest(const LatLng(38.10, 127.0276), null);
 
     expect(nearInLng?.sggCd, '11680');
     expect(nearInLat?.sggCd, '11680');
@@ -120,6 +120,7 @@ void main() {
       final result = await locateHere(
         const _FakeLocation(LocationOutcome.ok, DeviceFix(37.50, 127.03)),
         index,
+        null,
       );
 
       expect(result, isA<Located>());
@@ -134,6 +135,7 @@ void main() {
       final result = await locateHere(
         const _FakeLocation(LocationOutcome.ok, DeviceFix(20.0, 150.0)),
         index,
+        null,
       );
 
       expect(result, isA<Located>());
@@ -144,12 +146,10 @@ void main() {
       final result = await locateHere(
         const _FakeLocation(LocationOutcome.deniedForever),
         index,
+        null,
       );
 
-      expect(
-        (result as LocateFailed).outcome,
-        LocationOutcome.deniedForever,
-      );
+      expect((result as LocateFailed).outcome, LocationOutcome.deniedForever);
     });
 
     // 좌표를 시군구로 풀 근거가 없으면 권한 창부터 띄우지 않는다.
@@ -157,7 +157,7 @@ void main() {
       var asked = false;
       final source = _SpyLocation(() => asked = true);
 
-      final result = await locateHere(source, RegionIndex(const []));
+      final result = await locateHere(source, RegionIndex(const []), null);
 
       expect(result, isA<LocateNoIndex>());
       expect(asked, isFalse);
@@ -168,7 +168,7 @@ void main() {
     test('버튼은 정밀 위치를 물어본다', () async {
       final spy = _PrecisionSpy();
 
-      await locateHere(spy, index);
+      await locateHere(spy, index, null);
 
       expect(spy.askedPrecise, isTrue);
     });
@@ -181,6 +181,7 @@ void main() {
           DeviceFix(37.50, 127.03, precise: false),
         ),
         index,
+        null,
       );
 
       expect((result as Located).precise, isFalse);

@@ -70,8 +70,7 @@ const _labelLayer = 'deal-labels';
 /// 아니라 그 아래 원이 열려야 한다.
 const _hitLayers = [_pinLayer, _clusterLayer, _approxLayer];
 
-class _MapPageState extends ConsumerState<MapPage>
-    with WidgetsBindingObserver {
+class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   ml.MapLibreMapController? _controller;
   bool _styleReady = false;
   Timer? _regionDebounce;
@@ -165,6 +164,10 @@ class _MapPageState extends ConsumerState<MapPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // 시군구 경계를 미리 읽어 둔다. 지도를 밀어 옆 구로 넘어가는 판정이
+    // 카메라가 멈추는 **그 순간** 동기로 일어나서, 그때 가서 읽으면 늦는다.
+    // 푸는 일은 다른 아이소레이트에서 하므로 여기서 화면이 멈추지 않는다.
+    unawaited(ref.read(regionBoundariesProvider.future));
   }
 
   @override
@@ -371,10 +374,7 @@ class _MapPageState extends ConsumerState<MapPage>
         // 낱개가 드러나기 시작하는 배율부터다. 그보다 낮으면 격자 묶음뿐이라
         // 이름을 붙일 수 있는 점이 거의 없고, 있어도 서로 밀어낸다.
         minzoom: 15,
-        filter: const [
-          'has',
-          'label',
-        ],
+        filter: const ['has', 'label'],
         // 글자는 탭을 받지 않는다. 눌러야 하는 것은 그 위의 점이다.
         enableInteraction: false,
       );
@@ -437,8 +437,12 @@ class _MapPageState extends ConsumerState<MapPage>
     if (index == null || camera == null) return;
     if (!_cameraSpeaksForUser(camera)) return;
 
+    // 아직 안 읽혔으면 null이고, 그때는 경계상자로 떨어진다. 카메라가 멈출
+    // 때마다 불리는 자리라 여기서 기다릴 수는 없다 &mdash; 첫 몇 초 동안만
+    // 예전만큼 맞고, 그 뒤로는 진짜 경계로 판정한다.
     final region = index.at(
       idx.LatLng(camera.target.latitude, camera.target.longitude),
+      ref.read(regionBoundariesProvider).value,
     );
     // 담는 지역이 없으면 선택을 지우지 않는다. 배포되지 않은 지역 위를 잠깐
     // 지나갔다고 보던 데이터를 버리면 화면이 깜빡이기만 한다.
@@ -729,6 +733,7 @@ class _MapPageState extends ConsumerState<MapPage>
       final result = await locateHere(
         ref.read(locationProvider),
         ref.read(regionIndexProvider).value,
+        await ref.read(regionBoundariesProvider.future),
       );
       if (!mounted) return;
 
@@ -739,13 +744,12 @@ class _MapPageState extends ConsumerState<MapPage>
           final message = locationProblem(outcome);
           if (message != null) _say(message);
         case Located(:final lat, :final lng, :final region, :final precise):
-          if (region != null && region.sggCd != ref.read(selectedRegionProvider)) {
+          if (region != null &&
+              region.sggCd != ref.read(selectedRegionProvider)) {
             ref
                 .read(selectedRegionProvider.notifier)
                 .select(region.sggCd, name: region.displayName);
-            unawaited(
-              ref.read(syncProvider.notifier).syncRegion(region.sggCd),
-            );
+            unawaited(ref.read(syncProvider.notifier).syncRegion(region.sggCd));
           }
           // **지역 이동 신호(regionFocusProvider)를 쓰지 않는다.** 그쪽은
           // 시군구 중심점으로 가는 길이라, 여기서 부르면 방금 맞춘 좌표를

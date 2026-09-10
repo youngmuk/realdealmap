@@ -120,21 +120,21 @@ void main() {
     );
 
     test('경계상자 안이면 그 지역이다', () {
-      expect(index.at(const LatLng(37.52, 127.10))?.sggCd, '11680');
-      expect(index.at(const LatLng(37.45, 127.00))?.sggCd, '11650');
+      expect(index.at(const LatLng(37.52, 127.10), null)?.sggCd, '11680');
+      expect(index.at(const LatLng(37.45, 127.00), null)?.sggCd, '11650');
     });
 
     // 경계상자는 실제 경계가 아니라 거래가 퍼진 범위라 이웃끼리 겹친다.
     test('겹치는 자리는 중심이 가까운 쪽을 고른다', () {
       // 겹침 구간(37.460~37.510, 127.018~127.050)의 서초 쪽 끝
-      expect(index.at(const LatLng(37.470, 127.020))?.sggCd, '11650');
+      expect(index.at(const LatLng(37.470, 127.020), null)?.sggCd, '11650');
       // 같은 겹침 구간의 강남 쪽 끝
-      expect(index.at(const LatLng(37.505, 127.048))?.sggCd, '11680');
+      expect(index.at(const LatLng(37.505, 127.048), null)?.sggCd, '11680');
     });
 
     // 엉뚱한 지역 데이터를 보여주면 사용자는 그 자리의 실거래라고 믿는다.
     test('담는 지역이 없으면 억지로 고르지 않는다', () {
-      expect(index.at(const LatLng(35.15, 129.05)), isNull);
+      expect(index.at(const LatLng(35.15, 129.05), null), isNull);
     });
 
     test('경계상자가 없는 지역은 후보가 아니다', () {
@@ -151,7 +151,7 @@ void main() {
           ),
         ),
       ]);
-      expect(noBox.at(const LatLng(37.57, 126.98)), isNull);
+      expect(noBox.at(const LatLng(37.57, 126.98), null), isNull);
       expect(noBox.regions.single.hasMap, isFalse);
     });
   });
@@ -163,16 +163,16 @@ void main() {
 
     test('상자 밖이어도 가까우면 고른다', () {
       // 강남 상자 바로 북쪽
-      expect(index.nearest(const LatLng(37.55, 127.06))?.sggCd, '11680');
+      expect(index.nearest(const LatLng(37.55, 127.06), null)?.sggCd, '11680');
     });
 
     // 부산에서 서울을 열어 주면 사용자는 자기 동네 실거래로 오해한다.
     test('너무 멀면 고르지 않는다', () {
-      expect(index.nearest(const LatLng(35.15, 129.05)), isNull);
+      expect(index.nearest(const LatLng(35.15, 129.05), null), isNull);
     });
 
     test('상자 안이면 그 지역이 이긴다', () {
-      expect(index.nearest(const LatLng(37.52, 127.10))?.sggCd, '11680');
+      expect(index.nearest(const LatLng(37.52, 127.10), null)?.sggCd, '11680');
     });
   });
 

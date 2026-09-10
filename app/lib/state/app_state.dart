@@ -7,6 +7,7 @@ import '../config.dart';
 import '../data/db/database.dart';
 import '../data/location.dart';
 import '../data/sync/refresh_trigger.dart';
+import '../data/sync/region_boundaries.dart';
 import '../data/sync/region_index.dart';
 import '../data/sync/remote.dart';
 import '../data/sync/sync_engine.dart';
@@ -86,6 +87,22 @@ final regionIndexProvider =
     AsyncNotifierProvider<RegionIndexController, RegionIndex>(
       RegionIndexController.new,
     );
+
+// ------------------------------------------------------------ 시군구 경계
+
+/// 좌표를 시군구로 푸는 경계 폴리곤. **필요해질 때 한 번만** 읽는다.
+///
+/// 앱을 켤 때 미리 읽지 않는 이유는 1.4MB를 푸는 동안 화면이 멈추기 때문이다.
+/// 쓰는 곳은 두 군데 &mdash; 첫 실행의 "지금 있는 곳 열기"와 지도의 현재 위치
+/// 버튼 &mdash; 둘 다 비동기라 여기서 기다려도 화면이 막히지 않는다.
+///
+/// **한 번 읽으면 들고 있는다.** Riverpod 3은 듣는 곳이 없으면 프로바이더를
+/// 버리는데, 그러면 지도를 밀 때마다 1.4MB를 다시 푼다. 들고 있는 값은 1.5MB
+/// 남짓이라 다시 푸는 값보다 싸다.
+final regionBoundariesProvider = FutureProvider<RegionBoundaries?>((ref) {
+  ref.keepAlive();
+  return RegionBoundaries.loadAsset();
+});
 
 // ---------------------------------------------------------------- 선택 지역
 
