@@ -75,6 +75,8 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   bool _styleReady = false;
   Timer? _regionDebounce;
   Timer? _viewportDebounce;
+
+  /// 실제로 지도에 그린 건수. [_total]과 다르면 상한에 걸린 것이다.
   int _drawn = 0;
 
   /// 이미 스타일에 올린 아이콘 이름. 없으면 화면을 옮길 때마다 다시 그린다.
@@ -86,7 +88,7 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
   /// 뷰포트 갱신의 순번. 늦게 끝난 옛 요청이 새 결과를 덮어쓰지 못하게 한다
   int _viewportSeq = 0;
 
-  /// 화면 안 거래가 상한에 걸려 잘렸는가
+  /// 화면 안 거래가 상한에 걸려 잘렸는가. 참이면 화면에 그렇다고 밝힌다.
   bool _truncated = false;
 
   /// 화면 안에 실제로 있는 건수. 상한에 안 걸렸으면 [_drawn]과 같다.
@@ -916,6 +918,20 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
                   _noCenterFor!,
               onList: widget.onShowList,
             ),
+          )
+        // 상한에 걸려 일부만 그렸으면 그렇다고 말한다.
+        //
+        // 군집에 찍히는 숫자는 **불러온 것만** 센 값이다. 강남구를 넓게 보면
+        // 화면 안에 4만 건이 있어도 5,000건에서 끊긴다. 밝히지 않으면 사용자는
+        // 그 숫자를 화면 안 전부로 읽는다 &mdash; 실거래가에서는 그 오해가 비싸다.
+        //
+        // 좌표가 없는 지역과 동시에 뜰 수는 없다(그때는 그릴 것이 0건이다).
+        else if (_truncated)
+          Positioned(
+            left: 12,
+            right: 12,
+            top: 12,
+            child: _TruncatedNotice(drawn: _drawn, total: _total),
           ),
         // **화면 폭을 꽉 채워 바닥에 붙인다.**
         //
@@ -1017,6 +1033,53 @@ Map<String, dynamic> _toCollection(List<MapFeature> features) => {
 /// 때문이다 — 사전이 아직 안 올라갔거나, 새로 생긴 시군구라 색인이 없거나,
 /// 다시 굽기가 그 지역에 아직 안 닿았거나. 어느 쪽이든 사용자에게는
 /// "지도가 고장났다"로 보인다. 거래 자체는 다 있고 목록에서 볼 수 있다.
+/// 화면 안 거래가 상한에 걸려 일부만 그려졌다.
+///
+/// **작고 얇게 둔다.** 넓게 보면 늘 떠 있는 알림이라 큰 상자로 만들면 지도를
+/// 가리고, 그러면 사용자는 알림이 아니라 방해로 읽는다. 실기기에서 처음 만든
+/// 것(12.5)은 두 줄로 접히며 지도의 한 뼘을 덮었다.
+///
+/// 두 숫자를 다 적는 이유: 잘렸다는 사실만으로는 얼마나 잘렸는지 모른다.
+/// 군집에 찍힌 숫자를 얼마나 깎아서 읽어야 하는지는 그 비율이 정한다.
+class _TruncatedNotice extends StatelessWidget {
+  const _TruncatedNotice({required this.drawn, required this.total});
+
+  final int drawn;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.centerLeft,
+    child: Material(
+      color: Palette.warnSoft,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Text(
+          '${_thousands(total)}건 중 ${_thousands(drawn)}건만 표시 · 확대하세요',
+          style: const TextStyle(
+            fontSize: 10,
+            height: 1.3,
+            fontWeight: FontWeight.w600,
+            color: Palette.warn,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// 천 단위로 끊는다. 다섯 자리가 넘는 건수는 끊지 않으면 한눈에 안 읽힌다.
+String _thousands(int n) {
+  final digits = n.toString();
+  final buffer = StringBuffer();
+  for (var i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) buffer.write(',');
+    buffer.write(digits[i]);
+  }
+  return buffer.toString();
+}
+
 class _NoCenterNotice extends StatelessWidget {
   const _NoCenterNotice({required this.name, required this.onList});
   final String name;
