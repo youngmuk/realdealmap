@@ -127,6 +127,23 @@ export {
 
 export { UtmkError, utmkToWgs84, wgs84ToUtmk } from './utmk.js';
 
+export type {
+  DbfField,
+  DbfHeader,
+  Polygon,
+  Ring,
+  ShapeFeature,
+  ShapeRecord,
+} from './shapefile.js';
+export {
+  dbfRows,
+  readDbfHeader,
+  readShapefile,
+  shapeRecords,
+  ShapefileError,
+  signedArea,
+} from './shapefile.js';
+
 export type { EntrcPoint, EntrcReport } from './entrc.js';
 export type { SplitReport } from './entrc.js';
 export {
