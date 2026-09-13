@@ -91,21 +91,43 @@ const readRing = (dv: DataView, at: number, from: number, to: number): Ring => {
   return ring;
 };
 
+/** 점이 링 안에 있나. 광선 교차 — 구멍을 가려내는 데만 쓴다. */
+const containsPoint = (ring: Ring, x: number, y: number): boolean => {
+  let inside = false;
+  for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+    const xi = ring[i]!;
+    const yi = ring[i + 1]!;
+    const xj = ring[j]!;
+    const yj = ring[j + 1]!;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+};
+
 /**
  * 링들을 조각으로 묶는다.
  *
- * 시계 방향 링이 나오면 새 조각을 시작하고, 반시계는 방금 시작한 조각의 구멍으로
- * 붙인다. **첫 링이 반시계여도 조각을 시작한다** &mdash; 방향이 뒤집힌 자료가
- * 실제로 있고, 그때 그 링을 구멍으로 취급하면 건물이 통째로 사라진다.
- * 사라진 건물은 화면에서 &ldquo;원래 없는 건물&rdquo;과 구별되지 않는다.
+ * **방향만으로는 가릴 수 없다.** 규격은 바깥이 시계, 구멍이 반시계라고 정하지만
+ * 실물은 그렇지 않다 &mdash; 행안부 건물 도형 서울분 522,827조각 중
+ * **24,995개(4.8%)의 바깥 링이 반시계**다. 방향만 보면 그 건물들이 구멍이 되어
+ * 통째로 사라지고, 사라진 건물은 화면에서 &ldquo;원래 없는 건물&rdquo;과 구별되지 않는다.
+ *
+ * 그래서 **구멍은 반시계이면서 방금 시작한 조각 안에 들어 있는 링**으로만 본다.
+ * 같은 자료에서 구멍으로 잡히던 38개 중 11개가 바깥 링 밖에 있었다 &mdash;
+ * 그것들은 구멍이 아니라 따로 떨어진 조각이다.
+ *
+ * 넓이가 0인 링은 버린다. 그릴 것이 없는데 조각으로 세면 빈 도형이 남는다.
  */
 const groupRings = (rings: readonly Ring[]): Polygon[] => {
   const polygons: { outer: Ring; holes: Ring[] }[] = [];
   for (const ring of rings) {
-    const isOuter = signedArea(ring) < 0;
+    const area = signedArea(ring);
+    if (area === 0) continue;
     const current = polygons[polygons.length - 1];
-    if (isOuter || current === undefined) polygons.push({ outer: ring, holes: [] });
-    else current.holes.push(ring);
+    const isHole =
+      area > 0 && current !== undefined && containsPoint(current.outer, ring[0]!, ring[1]!);
+    if (isHole) current.holes.push(ring);
+    else polygons.push({ outer: ring, holes: [] });
   }
   return polygons;
 };

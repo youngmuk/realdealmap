@@ -202,6 +202,37 @@ describe('.shp 읽기', () => {
     expect(record?.polygons[1]?.holes).toEqual([]);
   });
 
+  // 실물에서 나온 모양이다. 행안부 서울분에서 구멍으로 잡히던 38개 중 11개가
+  // 바깥 링 **밖에** 있었다. 방향만 믿으면 그 조각들이 건물 안의 구멍이 되어
+  // 멀쩡한 건물에 구멍이 뚫리거나 조각 하나가 사라진다.
+  it('바깥 링 밖의 반시계 링은 구멍이 아니라 딴 조각이다', () => {
+    const shp = buildShp([
+      polygonRecord([clockwise(0, 0, 2), counterClockwise(10, 10, 2)]),
+    ]);
+    const [record] = [...shapeRecords(shp)];
+
+    expect(record?.polygons).toHaveLength(2);
+    expect(record?.polygons[0]?.holes).toEqual([]);
+    expect(record?.polygons[1]?.holes).toEqual([]);
+  });
+
+  // 같은 자료에 넓이가 0인 링이 섞여 있다. 그리면 아무것도 안 보이는데
+  // 조각으로 세면 빈 도형이 남아 개수만 어긋난다.
+  it('넓이가 없는 링은 버린다', () => {
+    const flat: Point[] = [
+      [0, 0],
+      [1, 1],
+      [2, 2],
+      [1, 1],
+      [0, 0],
+    ];
+    const shp = buildShp([polygonRecord([clockwise(0, 0), flat])]);
+    const [record] = [...shapeRecords(shp)];
+
+    expect(record?.polygons).toHaveLength(1);
+    expect(record?.polygons[0]?.holes).toEqual([]);
+  });
+
   // 방향이 뒤집힌 자료가 실제로 있다. 그때 첫 링을 구멍으로 보면 건물이
   // 통째로 사라지는데, 사라진 건물은 "원래 없는 건물"과 구별되지 않는다.
   it('첫 링이 반시계여도 건물을 잃지 않는다', () => {
