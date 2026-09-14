@@ -144,6 +144,19 @@ export {
   signedArea,
 } from './shapefile.js';
 
+export type { DongShapes, ShapeDong, ShapeIndex, ShapePart } from './shapes.js';
+export {
+  dongShapes,
+  outlinesOf,
+  partFor,
+  ringToLngLat,
+  SHAPE_ATTRIBUTION,
+  SHAPE_DIGITS,
+  SHAPE_SCHEMA_VERSION,
+  shapeBuildingKey,
+  shapeIndex,
+} from './shapes.js';
+
 export type { EntrcPoint, EntrcReport } from './entrc.js';
 export type { SplitReport } from './entrc.js';
 export {
