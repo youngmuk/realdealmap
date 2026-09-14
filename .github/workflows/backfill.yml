@@ -1,5 +1,9 @@
 name: backfill
 
+# 실행 목록과 메일 제목에서 자동 재시도·시험 실행인지 바로 보이게 한다.
+# 지표(metrics.yml)가 끝의 "(재시도)"로 재시도를 세고 "(시험)"을 뺀다 — 바꾸면 거기도 고친다.
+run-name: "backfill${{ inputs.attempt == '2' && ' (재시도)' || '' }}${{ inputs.dryRun && ' (시험)' || '' }}"
+
 # 전국 시군구를 12개월까지 채운다 (T6.1).
 #
 # **진행 상태를 따로 들고 있지 않는다.** 매 실행이 R2에 "아직 12개월이 없는 지역"을
@@ -30,6 +34,13 @@ on:
         required: false
         default: false
         type: boolean
+      attempt:
+        # 재시도가 또 재시도를 부르지 않게 한다. 원천이 정말 죽었다면 두 번째도
+        # 닿지 못하고, 그때는 다음 정기 실행(6시간 뒤)이 다시 본다.
+        description: '자동 재시도 표시 (사람이 건드리지 않는다)'
+        required: false
+        default: '1'
+        type: string
 
   # 적재가 끝나면 할 일이 없어 R2 조회만 하고 끝난다. 그대로 두면
   # 달이 바뀔 때 새 달을 자동으로 채우는 장치가 된다.
@@ -54,6 +65,8 @@ jobs:
     runs-on: ubuntu-latest
     # 지역당 2~3분을 잡고 40개면 두 시간 안쪽이다. 6시간 상한에 여유를 둔다.
     timeout-minutes: 330
+    outputs:
+      code: ${{ steps.load.outputs.code }}
 
     steps:
       # 액션은 커밋 SHA로 고정한다. 이 잡이 국토부 인증키와 R2 자격증명을 쥔다.
@@ -101,6 +114,7 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
 
       - name: 적재
+        id: load
         if: steps.plan.outputs.count != '0'
         run: |
           ok=0; held=0; failed=0; down=0
@@ -141,10 +155,17 @@ jobs:
 
           # 원천이 죽은 것과 우리가 고장난 것을 갈라 적는다. 빨간불의 뜻이
           # "코드를 보라"인지 "기다려라"인지가 로그를 열기 전에 보여야 한다.
+          #
+          # 원천 불통은 **실패로 올리지 않는다.** 주기적으로 오던 실패 메일이
+          # 전부 이것이었고 사람이 할 수 있는 일이 없었다. 같은 시각 다른 실행은
+          # 원천에 닿으므로, 원천이 죽은 것이 아니라 그 러너가 못 닿은 것으로 본다 —
+          # 그래서 아래 retry 잡이 새 러너에서 한 번 더 돈다. 적재는 진행 상태를
+          # 들고 있지 않아 다시 물어보면 남은 지역이 그대로 나온다.
           if [ "$down" -eq 1 ]; then
             echo "| 중단 | 원천 불통 |" >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::원천(apis.data.go.kr)에 닿지 못해 중단했습니다 — 우리 쪽 고장이 아닙니다"
-            exit 1
+            echo "::warning::원천(apis.data.go.kr)에 닿지 못해 중단했습니다 — 우리 쪽 고장이 아닙니다"
+            echo "code=4" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           # 전부 실패했으면 무언가 구조적으로 잘못된 것이다. 조용히 넘기지 않는다.
@@ -161,8 +182,47 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
 
+      # 원천 불통은 잡이 성공으로 끝나므로 실행 결론만으로는 안 보인다.
+      # 지표(metrics.yml)가 **이 단계가 돌았는지**로 센다 — 이름을 바꾸면 거기도 고친다.
+      - name: 원천 불통
+        if: steps.load.outputs.code == '4'
+        run: |
+          if [ -n "$DRY_RUN" ]; then
+            echo "시험 실행이라 다시 돌리지 않습니다."
+          elif [ "$ATTEMPT" = "2" ]; then
+            echo "재시도에서도 원천에 닿지 못했습니다. 다음 정기 실행이 다시 봅니다."
+          else
+            echo "새 러너에서 한 번 더 돌립니다(retry 잡)."
+          fi
+        env:
+          ATTEMPT: ${{ inputs.attempt || '1' }}
+          DRY_RUN: ${{ inputs.dryRun && '1' || '' }}
+
       - name: 남은 것이 없으면 알린다
         if: steps.plan.outputs.count == '0'
         run: echo "전국 ${MONTHS}개월이 모두 채워져 있습니다." >> "$GITHUB_STEP_SUMMARY"
         env:
+          MONTHS: ${{ inputs.months || '12' }}
+
+  retry:
+    needs: backfill
+    if: needs.backfill.outputs.code == '4' && inputs.attempt != '2' && !inputs.dryRun
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: 새 러너에서 다시 돌린다
+        # 다시 부르기가 실패해도 잡을 실패로 끝내지 않는다. 그러면 없애려던
+        # 실패 메일이 이 경로로 되돌아온다. 못 불렀어도 다음 정기 실행이 다시 본다.
+        run: |
+          if gh workflow run backfill.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+            -f limit="$LIMIT" -f months="$MONTHS" -f attempt=2; then
+            echo "적재 재시도를 요청했습니다."
+          else
+            echo "::warning::적재 재시도를 요청하지 못했습니다. 다음 정기 실행이 다시 봅니다."
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LIMIT: ${{ inputs.limit || '40' }}
           MONTHS: ${{ inputs.months || '12' }}

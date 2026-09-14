@@ -82,19 +82,19 @@ jobs:
             echo "| --- | --- | --- | --- | --- | --- |"
           } >> /tmp/metrics.md
 
-          for wf in refresh-region.yml backfill.yml; do
+          for wf in refresh-region.yml backfill.yml prewarm-hot.yml resync-cold.yml; do
             runs=$(runs_of "$wf")
             ok=$(jq '[.[] | select(.conclusion=="success")] | length' <<< "$runs")
             bad=$(jq '[.[] | select(.conclusion=="failure" or .conclusion=="timed_out")] | length' <<< "$runs")
             total=$((ok + bad))
             requests=$total; deployed=$ok; down='—'
 
-            # refresh-region은 원천 불통을 성공으로 끝내고 새 러너에서 한 번 더 돈다.
+            # 네 워크플로 모두 원천 불통을 성공으로 끝내고 새 러너에서 한 번 더 돈다.
             # 결론만 세면 불통이 성공으로 잡히므로 풀어서 센다.
             #   재시도 실행 수 = 1차에서 닿지 못한 수 (하나당 재시도가 하나)
             #   재시도에서도 닿지 못한 수 = 재시도 실행 중 "원천 불통" 단계가 돈 것
             # 잡 조회는 재시도 실행에만 한다. 전부 조회하면 토큰 한도(시간당 1,000)에 닿는다.
-            if [ "$wf" = refresh-region.yml ] && [ "$total" -gt 0 ]; then
+            if [ "$total" -gt 0 ]; then
               retried=$(jq '[.[] | select(.title | endswith("(재시도)"))] | length' <<< "$runs")
               still=0
               for id in $(jq -r '.[] | select((.title | endswith("(재시도)")) and .conclusion=="success") | .id' <<< "$runs"); do
@@ -103,7 +103,7 @@ jobs:
               done
               requests=$((total - retried))
               deployed=$((ok - retried - still))
-              down="$still (재시도 $retried)"
+              if [ "$retried" -gt 0 ]; then down="$still (재시도 $retried)"; else down="$still"; fi
             fi
 
             if [ "$requests" -le 0 ]; then
