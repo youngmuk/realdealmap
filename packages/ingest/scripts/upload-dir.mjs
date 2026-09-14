@@ -30,6 +30,21 @@ const TYPES = {
 /** 한 번에 여덟 개씩. 순차는 너무 느리고, 다 풀면 R2가 간헐적으로 끊는다. */
 const CONCURRENCY = 8;
 
+/**
+ * 파일 하나를 어떤 머리말로 올릴지.
+ *
+ * **`.json.gz`는 `content-encoding: gzip`을 달아야 한다.** 안 달면 클라이언트가
+ * 압축된 바이트를 그대로 받아 JSON으로 읽다 깨진다 — 거래 청크가 쓰는 규칙과
+ * 같게 둔다(`publish.ts`). 이름의 `.gz`는 우리끼리의 표시이고, 받는 쪽은
+ * 머리말만 본다.
+ */
+const headersFor = (full) => {
+  if (full.toLowerCase().endsWith('.json.gz')) {
+    return { contentType: 'application/json', contentEncoding: 'gzip' };
+  }
+  return { contentType: TYPES[extname(full).toLowerCase()] ?? 'application/octet-stream' };
+};
+
 const walk = (dir, prefix = '') => {
   const out = [];
   for (const entry of readdirSync(dir)) {
@@ -58,7 +73,7 @@ const main = async () => {
       files.slice(i, i + CONCURRENCY).map(async ({ full, key }) => {
         const body = readFileSync(full);
         await r2.put(posix.join(prefix, key), body, {
-          contentType: TYPES[extname(full).toLowerCase()] ?? 'application/octet-stream',
+          ...headersFor(full),
           // 이름에 날짜나 해시가 박힌 자산만 immutable로 둔다. 그렇지 않은 것을
           // 1년 캐시로 올리면 고치고 싶어도 사용자 기기에서 못 바꾼다.
           cacheControl: immutable ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
