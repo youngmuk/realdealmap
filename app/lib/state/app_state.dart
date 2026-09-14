@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
 import '../data/db/database.dart';
 import '../data/location.dart';
+import '../data/sync/building_shapes.dart';
 import '../data/sync/refresh_trigger.dart';
 import '../data/sync/region_boundaries.dart';
 import '../data/sync/region_index.dart';
@@ -37,6 +38,14 @@ final remoteProvider = Provider<RemoteSource>(
 
 final syncEngineProvider = Provider<SyncEngine>(
   (ref) => SyncEngine(ref.watch(databaseProvider), ref.watch(remoteProvider)),
+);
+
+/// 건물 외곽선 저장소.
+///
+/// **상세창이 열릴 때마다 새로 만들면 안 된다.** 받아 둔 목차와 조각을 그 안에
+/// 들고 있어서, 새로 만들면 같은 법정동을 목록에서 열 때마다 다시 받는다.
+final buildingShapeStoreProvider = Provider<BuildingShapeStore>(
+  (ref) => BuildingShapeStore(ref.watch(remoteProvider)),
 );
 
 final locationProvider = Provider<LocationSource>(
