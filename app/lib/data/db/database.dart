@@ -317,6 +317,45 @@ class AppDatabase extends _$AppDatabase {
     return row.read<int>('c');
   }
 
+  /// 검색이 훑을 자리들 — 이 지역의 거래에서 뽑은 단지·지번.
+  ///
+  /// **좌표가 있는 것만 준다.** 골라도 갈 곳이 없는 줄을 목록에 띄우면,
+  /// 사용자는 그것을 눌러 보고 앱이 고장 난 것으로 읽는다.
+  ///
+  /// 같은 단지에 거래가 수백 건이라 `DISTINCT`로 묶는다. 좌표는 그중 하나면
+  /// 되는데(같은 지번이면 같은 점이다) `MIN`으로 하나를 고정해 둔다 — 그러지
+  /// 않으면 같은 검색어에 매번 다른 점으로 가서 "왜 조금씩 움직이지"가 된다.
+  ///
+  /// [limit]은 안전장치다. 강남구 하나가 4만 건인데, 그중 고유한 단지·지번은
+  /// 수천 개다. 그래도 상한을 두지 않으면 지역에 따라 검색 한 번이 얼마나
+  /// 걸릴지 알 수 없게 된다.
+  Future<
+    List<({String umdNm, String jibun, String name, double lat, double lng})>
+  >
+  searchablePlaces(String sggCd, {int limit = 20000}) async {
+    final rows = await customSelect(
+      // 이 두 줄은 **큰따옴표라야 한다.** 작은따옴표 안에서 ''는 문자열을 끝내고
+      // 새 문자열을 여는 것이라, SQL에 `COALESCE(jibun, )`가 나가 그대로 터진다.
+      "SELECT umd_nm AS u, COALESCE(jibun, '') AS j, "
+      "COALESCE(name, '') AS n, MIN(lat) AS la, MIN(lng) AS ln "
+      'FROM tx_rows WHERE sgg_cd = ? AND lat IS NOT NULL '
+      'GROUP BY u, j, n LIMIT ?',
+      variables: [Variable<String>(sggCd), Variable<int>(limit)],
+      readsFrom: {txRows},
+    ).get();
+    return rows
+        .map(
+          (r) => (
+            umdNm: r.read<String>('u'),
+            jibun: r.read<String>('j'),
+            name: r.read<String>('n'),
+            lat: r.read<double>('la'),
+            lng: r.read<double>('ln'),
+          ),
+        )
+        .toList();
+  }
+
   /// 이 지역에서 **실제로 받아 본** 자료 유형.
   ///
   /// "받았는데 0건"과 "아직 못 받았다"를 가르는 유일한 근거다. 청크 행은

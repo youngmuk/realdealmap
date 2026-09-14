@@ -20,6 +20,7 @@ import 'cluster.dart';
 import 'cluster_icons.dart';
 import 'locate.dart';
 import 'map_focus.dart';
+import 'search_box.dart';
 import 'stack_sheet.dart';
 import 'style_watchdog.dart';
 
@@ -898,41 +899,53 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
           myLocationEnabled: false,
           trackCameraPosition: true,
         ),
-        // 고른 지역에 좌표가 하나도 없으면 그렇다고 말한다.
+        // 위쪽에 뜨는 것들은 **한 세로줄에 담는다.**
         //
-        // 말하지 않으면 머리말은 담양군인데 화면에는 강남구가 그대로 남는다.
-        // 사용자는 그 마커들을 자기가 고른 지역의 거래로 읽는다.
-        if (_noCenterFor != null &&
-            _noCenterFor == ref.watch(selectedRegionProvider))
-          Positioned(
-            left: 12,
-            right: 12,
-            top: 12,
-            child: _NoCenterNotice(
-              name:
-                  ref
-                      .watch(regionIndexProvider)
-                      .value
-                      ?.byCode(_noCenterFor!)
-                      ?.displayName ??
-                  _noCenterFor!,
-              onList: widget.onShowList,
-            ),
-          )
-        // 상한에 걸려 일부만 그렸으면 그렇다고 말한다.
-        //
-        // 군집에 찍히는 숫자는 **불러온 것만** 센 값이다. 강남구를 넓게 보면
-        // 화면 안에 4만 건이 있어도 5,000건에서 끊긴다. 밝히지 않으면 사용자는
-        // 그 숫자를 화면 안 전부로 읽는다 &mdash; 실거래가에서는 그 오해가 비싸다.
-        //
-        // 좌표가 없는 지역과 동시에 뜰 수는 없다(그때는 그릴 것이 0건이다).
-        else if (_truncated)
-          Positioned(
-            left: 12,
-            right: 12,
-            top: 12,
-            child: _TruncatedNotice(drawn: _drawn, total: _total),
+        // 각자 `top: 12`로 띄우면 서로를 덮는다. 검색 단추와 안내 띠가 겹치면
+        // 안내가 안 읽히거나 단추가 안 눌린다 — 둘 다 조용히 일어난다.
+        // 한 줄에 넣으면 서로를 밀어내므로 겹칠 수가 없다.
+        Positioned(
+          left: 12,
+          right: 12,
+          top: 12,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const MapSearchBox(),
+              // 고른 지역에 좌표가 하나도 없으면 그렇다고 말한다.
+              //
+              // 말하지 않으면 머리말은 담양군인데 화면에는 강남구가 그대로 남는다.
+              // 사용자는 그 마커들을 자기가 고른 지역의 거래로 읽는다.
+              if (_noCenterFor != null &&
+                  _noCenterFor == ref.watch(selectedRegionProvider))
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _NoCenterNotice(
+                    name:
+                        ref
+                            .watch(regionIndexProvider)
+                            .value
+                            ?.byCode(_noCenterFor!)
+                            ?.displayName ??
+                        _noCenterFor!,
+                    onList: widget.onShowList,
+                  ),
+                )
+              // 상한에 걸려 일부만 그렸으면 그렇다고 말한다.
+              //
+              // 군집에 찍히는 숫자는 **불러온 것만** 센 값이다. 강남구를 넓게 보면
+              // 화면 안에 4만 건이 있어도 5,000건에서 끊긴다. 밝히지 않으면 사용자는
+              // 그 숫자를 화면 안 전부로 읽는다 &mdash; 실거래가에서는 그 오해가 비싸다.
+              //
+              // 좌표가 없는 지역과 동시에 뜰 수는 없다(그때는 그릴 것이 0건이다).
+              else if (_truncated)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _TruncatedNotice(drawn: _drawn, total: _total),
+                ),
+            ],
           ),
+        ),
         // **화면 폭을 꽉 채워 바닥에 붙인다.**
         //
         // 떠 있는 상자였을 때는 그 아래로 지도가 비쳐, 범례와 아래 메뉴 사이에

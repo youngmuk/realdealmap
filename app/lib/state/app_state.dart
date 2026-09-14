@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
 import '../data/db/database.dart';
 import '../data/location.dart';
+import '../data/search/umd_index.dart';
 import '../data/sync/building_shapes.dart';
 import '../data/sync/refresh_trigger.dart';
 import '../data/sync/region_boundaries.dart';
@@ -46,6 +47,14 @@ final syncEngineProvider = Provider<SyncEngine>(
 /// 들고 있어서, 새로 만들면 같은 법정동을 목록에서 열 때마다 다시 받는다.
 final buildingShapeStoreProvider = Provider<BuildingShapeStore>(
   (ref) => BuildingShapeStore(ref.watch(remoteProvider)),
+);
+
+/// 전국 법정동 색인 저장소.
+///
+/// 저장소를 provider에 두는 이유는 외곽선과 같다 — 검색창을 닫았다 열 때마다
+/// 새로 만들면 268KB를 그때마다 다시 받는다.
+final umdIndexStoreProvider = Provider<UmdIndexStore>(
+  (ref) => UmdIndexStore(ref.watch(remoteProvider)),
 );
 
 final locationProvider = Provider<LocationSource>(

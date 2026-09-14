@@ -177,3 +177,15 @@ export {
   jusoUmdName,
   parseJusoRow,
 } from './juso.js';
+export type { UmdIndex, UmdRow } from './search.js';
+export {
+  choseongOf,
+  isChoseongQuery,
+  normalizeQuery,
+  scoreOf,
+  SEARCH_ATTRIBUTION,
+  SEARCH_DIGITS,
+  SEARCH_SCHEMA_VERSION,
+  umdIndex,
+  umdRowsOf,
+} from './search.js';
