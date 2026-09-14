@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../theme.dart';
 
@@ -34,6 +36,42 @@ class AboutSheet extends StatelessWidget {
       children: const [
         _Header(),
 
+        // Play 첫 심사가 "혼동을 야기하는 주장"으로 거부됐다(2026-09-11).
+        // 정부 자료를 옮기는 앱은 정부기관이 아니라는 고지와 원본으로 가는
+        // 링크를 사용자가 바로 볼 수 있어야 한다. 그래서 둘 다 맨 위로 올렸다.
+        _Body(
+          '이 앱은 국토교통부 등 정부기관이 만들거나 운영하는 앱이 아니며, '
+          '기관과 아무 관계가 없습니다. 거래 정보의 원본은 아래 출처에서 '
+          '직접 확인할 수 있습니다.',
+          strong: true,
+        ),
+
+        SectionLabel('출처'),
+        _Source('거래 정보 원본', '국토교통부 실거래가 공개시스템', url: 'https://rt.molit.go.kr'),
+        _Source(
+          '거래 정보 제공 (Open API)',
+          '공공데이터포털 · 국토교통부 실거래가 자료',
+          url: 'https://www.data.go.kr',
+        ),
+        _Source(
+          '배경 지도',
+          '© OpenStreetMap contributors',
+          url: 'https://www.openstreetmap.org/copyright',
+        ),
+        _Source('주소와 좌표', '도로명주소 © 행정안전부', url: 'https://www.juso.go.kr'),
+        _Source('행정구역 코드', '행정안전부 행정표준코드관리시스템', url: 'https://www.code.go.kr'),
+        // CC BY 4.0은 출처 표기가 조건이다. 지우면 라이선스 위반이라
+        // 화면에서 뺄 수 없다. 같은 문구가 경계 파일 안에도 들어 있다.
+        _Source(
+          '시군구 경계',
+          '통계청 SGIS 행정동 경계(공공누리 제1유형)를 vuski/admdongkor이 '
+              '가공한 것 · CC BY 4.0',
+        ),
+        _Body(
+          '자료의 내용에 대한 책임은 원천 기관에 있고, 옮기는 과정의 '
+          '잘못은 우리에게 있습니다.',
+        ),
+
         SectionLabel('이 정보의 한계'),
         _Body(
           '이 앱은 국토교통부가 공개한 부동산 거래 신고 자료를 그대로 옮겨 보여줍니다. '
@@ -60,24 +98,6 @@ class AboutSheet extends StatelessWidget {
           '값을 쓰기 전에',
           '시세 판단·계약·투자 결정의 근거로 삼기 전에 국토교통부 실거래가 '
               '공개시스템에서 원문을 확인하십시오.',
-        ),
-
-        SectionLabel('출처'),
-        _Source('거래 정보', '국토교통부 실거래가 공개시스템 (RTMS Open API)'),
-        _Source('배경 지도', '© OpenStreetMap contributors'),
-        _Source('주소와 좌표', '도로명주소 © 행정안전부'),
-        _Source('행정구역 코드', '행정안전부 행정표준코드관리시스템'),
-        // CC BY 4.0은 출처 표기가 조건이다. 지우면 라이선스 위반이라
-        // 화면에서 뺄 수 없다. 같은 문구가 경계 파일 안에도 들어 있다.
-        _Source(
-          '시군구 경계',
-          '통계청 SGIS 행정동 경계(공공누리 제1유형)를 vuski/admdongkor이 '
-              '가공한 것 · CC BY 4.0',
-        ),
-        _Body(
-          '이 앱은 위 기관이 만들거나 운영하는 것이 아니며, 기관과 아무 관계가 '
-          '없습니다. 자료의 내용에 대한 책임은 원천 기관에 있고, 옮기는 과정의 '
-          '잘못은 우리에게 있습니다.',
         ),
 
         SectionLabel('갱신'),
@@ -196,9 +216,13 @@ class _Point extends StatelessWidget {
 }
 
 class _Source extends StatelessWidget {
-  const _Source(this.label, this.name);
+  const _Source(this.label, this.name, {this.url});
   final String label;
   final String name;
+
+  /// 원본으로 가는 주소. 있으면 이름 아래에 **주소 그대로** 보여준다 —
+  /// "바로가기" 같은 말로 감추면 어디로 가는지 누르기 전에는 모른다.
+  final String? url;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -219,7 +243,80 @@ class _Source extends StatelessWidget {
             color: Palette.ink,
           ),
         ),
+        if (url case final url?) _Link(url),
       ],
+    ),
+  );
+}
+
+/// 누르면 외부 브라우저로 여는 주소 한 줄.
+class _Link extends StatelessWidget {
+  const _Link(this.url);
+  final String url;
+
+  Future<void> _open(BuildContext context) async {
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+    } on PlatformException {
+      opened = false;
+    } on Exception {
+      // MissingPluginException 등 플랫폼 채널 쪽 실패도 여기서 받는다.
+      // 어떤 이유든 못 열었으면 아래 대화상자로 주소를 보여 주는 게 할 일이다.
+      opened = false;
+    }
+    if (opened || !context.mounted) return;
+    // 스낵바는 이 시트 뒤의 화면에 떠서 시트에 가려진다. 대화상자로 알리고,
+    // 주소를 옮겨 적을 수 있게 선택 가능한 글자로 둔다.
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('브라우저를 열 수 없습니다'),
+        content: SelectableText(url),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('닫기'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    // container가 없으면 위의 라벨·기관 이름과 한 노드로 합쳐져서
+    // 스크린 리더가 링크를 따로 짚지 못한다.
+    container: true,
+    link: true,
+    label: '$url 열기',
+    // excludeSemantics는 InkWell의 탭 동작까지 지운다. 여기서 다시 달지 않으면
+    // TalkBack으로는 링크를 들을 수만 있고 열 수는 없다.
+    excludeSemantics: true,
+    onTap: () => _open(context),
+    child: InkWell(
+      onTap: () => _open(context),
+      // 손가락이 닿을 높이(48dp)를 준다. 글자만큼만이면 누르기 어렵다.
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          widthFactor: 1,
+          child: Text(
+            url,
+            style: const TextStyle(
+              fontSize: 12.5,
+              height: 1.4,
+              color: Palette.slate,
+              decoration: TextDecoration.underline,
+              decorationColor: Palette.slate,
+            ),
+          ),
+        ),
+      ),
     ),
   );
 }

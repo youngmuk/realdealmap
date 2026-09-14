@@ -89,5 +89,11 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- url_launcher: 정보 시트의 원본 출처 링크를 브라우저로 연다.
+             Android 11+ 패키지 가시성 때문에 없으면 브라우저를 못 찾는다. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>
