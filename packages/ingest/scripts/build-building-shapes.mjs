@@ -24,9 +24,17 @@
  * 손으로 적는 대신 **파일이 실제로 담고 있는 시군구코드의 앞 두 자리**로 잇는다 —
  * 표를 적어 두면 시도가 통합·분리될 때마다 조용히 어긋난다(광주·전남, 인천).
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
-import { gzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 
 import {
   dongShapes,
@@ -165,6 +173,48 @@ const partContent = (dong, jibuns) => {
   return { shapes, buildings };
 };
 
+/**
+ * 앞선 시도가 쓴 같은 법정동을 읽어 지금 것에 합친다.
+ *
+ * **시도 파일에는 남의 시군구가 몇 줄씩 섞여 있다.** 서울 파일에서 시군구 28개가
+ * 나왔는데 서울은 25개다. 그냥 덮어쓰면 **뒤에 처리한 시도의 유령 몇 줄이
+ * 앞서 제대로 구운 법정동을 통째로 지운다** — 목차와 파일이 서로 맞아떨어져
+ * 있어서 검증으로도 안 잡히고, 그 동네 건물만 조용히 사라진다.
+ * 건물DB 색인에서 하남시 14,072개가 1개로 줄었던 그 실패다.
+ *
+ * 같은 모양이 양쪽에 있으면 한 번만 남긴다.
+ */
+const mergePrevious = (dir, entry, dong) => {
+  const seen = new Map();
+  dong.shapes.forEach((ring, at) => seen.set(JSON.stringify(ring), at));
+
+  for (const part of entry.parts) {
+    const path = join(dir, part.file);
+    if (!existsSync(path)) continue;
+    const body = JSON.parse(gunzipSync(readFileSync(path)));
+    const moved = new Map();
+    for (const [jibun, ids] of Object.entries(body.buildings)) {
+      const list = dong.buildings.get(jibun) ?? [];
+      for (const id of ids) {
+        let at = moved.get(id);
+        if (at === undefined) {
+          const ring = body.shapes[id];
+          const key = JSON.stringify(ring);
+          at = seen.get(key);
+          if (at === undefined) {
+            at = dong.shapes.push(ring) - 1;
+            seen.set(key, at);
+          }
+          moved.set(id, at);
+        }
+        if (!list.includes(at)) list.push(at);
+      }
+      dong.buildings.set(jibun, list);
+    }
+  }
+  return dong;
+};
+
 /** 시군구별로 나눠 쓴다. 같은 실행에서 이미 쓴 시군구면 목차를 합친다. */
 const writeRegions = (dongs, out, source, written) => {
   const bySgg = new Map();
@@ -180,8 +230,22 @@ const writeRegions = (dongs, out, source, written) => {
   for (const [sggCd, bucket] of bySgg) {
     const dir = join(out, sggCd);
     mkdirSync(dir, { recursive: true });
+    const indexPath = join(dir, 'index.json');
+    const before =
+      written.has(sggCd) && existsSync(indexPath)
+        ? JSON.parse(readFileSync(indexPath, 'utf8')).dongs
+        : {};
+
     const entries = {};
     for (const [bjdCd, dong] of bucket) {
+      const previous = before[dong.umdNm];
+      if (previous !== undefined) {
+        mergePrevious(dir, previous, dong);
+        // 옛 조각을 다시 쓰는 것이므로 셈에서 뺀다. 안 그러면 로그의 파일 수가
+        // 디스크에 있는 것보다 많아진다.
+        files -= previous.parts.length;
+        bytes -= previous.bytes;
+      }
       const parts = [];
       let dongBytes = 0;
       splitDong(dong).forEach((part, at) => {
@@ -204,19 +268,17 @@ const writeRegions = (dongs, out, source, written) => {
         dongBytes += size;
         files += 1;
       });
+      // 합친 결과가 조각 수를 줄일 수 있다. 남은 옛 조각을 지우지 않으면
+      // 아무도 가리키지 않는 파일이 배포본에 섞여 올라간다.
+      if (previous !== undefined) {
+        const kept = new Set(parts.map((p) => p.file));
+        for (const old of previous.parts) if (!kept.has(old.file)) rmSync(join(dir, old.file));
+      }
       entries[dong.umdNm] = { bjdCd, buildings: dong.buildings.size, bytes: dongBytes, parts };
       bytes += dongBytes;
     }
 
-    // 시도 파일에 남의 시군구가 몇 줄씩 섞여 있다. 그냥 덮어쓰면 나중에 처리한
-    // 시도의 유령 한 줄이 앞서 만든 목차를 통째로 지운다 — 건물DB 색인에서
-    // 하남시 14,072개가 1개로 줄었던 그 실패다.
-    const indexPath = join(dir, 'index.json');
-    const merged =
-      written.has(sggCd) && existsSync(indexPath)
-        ? { ...JSON.parse(readFileSync(indexPath, 'utf8')).dongs, ...entries }
-        : entries;
-    writeFileSync(indexPath, JSON.stringify(shapeIndex({ sggCd, source }, merged)));
+    writeFileSync(indexPath, JSON.stringify(shapeIndex({ sggCd, source }, { ...before, ...entries })));
     written.add(sggCd);
   }
   return { regions: bySgg.size, files, bytes };
