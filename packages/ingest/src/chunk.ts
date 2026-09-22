@@ -79,7 +79,7 @@ export interface Chunk {
  * 업로드 바이트까지 동일하게 만들어 불필요한 재업로드를 막는다.
  */
 const OS_UNKNOWN = 255;
-const normalizeGzipHeader = (bytes: Buffer): Buffer => {
+export const normalizeGzipHeader = (bytes: Buffer): Buffer => {
   const copy = Buffer.from(bytes);
   copy[9] = OS_UNKNOWN;
   return copy;
@@ -91,7 +91,7 @@ const normalizeGzipHeader = (bytes: Buffer): Buffer => {
  * 결정성 위협 ①: `JSON.stringify`는 객체의 키 삽입 순서를 그대로 쓴다.
  * 같은 데이터라도 필드 순서가 달라지면 바이트가 달라지므로 직접 정렬한다.
  */
-const canonical = (value: unknown): string => {
+export const canonical = (value: unknown): string => {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
 

@@ -58,6 +58,48 @@ class ManifestFile {
   }
 }
 
+/// 첫 설치용 묶음이 어디 있는지 (`packages/ingest/src/bundle.ts`).
+///
+/// **뒤처져 있을 수 있다.** 청크 경로에 내용 해시가 박혀 있어, 묶음 안의 옛
+/// 청크는 지금 매니페스트의 어느 경로와도 맞지 않아 그냥 버려진다. 그래서
+/// 묶음이 최신인지 확인할 필요가 없다 — 맞는 것만 쓰면 된다.
+class BundleRef {
+  const BundleRef({
+    required this.path,
+    required this.sha256,
+    required this.bytes,
+    required this.chunks,
+  });
+
+  final String path;
+
+  /// **압축 전** 정규 JSON의 해시. 청크와 같은 규칙이다
+  final String sha256;
+
+  /// 압축 후 바이트. 낱개로 받는 것보다 싼지를 이 값으로 잰다
+  final int bytes;
+  final int chunks;
+
+  factory BundleRef.fromJson(Map<String, dynamic> json) {
+    final path = json['path'];
+    final sha256 = json['sha256'];
+    final bytes = json['bytes'];
+    final chunks = json['chunks'];
+    if (path is! String ||
+        sha256 is! String ||
+        bytes is! num ||
+        chunks is! num) {
+      throw ManifestFormatException('bundle의 모양이 다르다');
+    }
+    return BundleRef(
+      path: path,
+      sha256: sha256,
+      bytes: bytes.toInt(),
+      chunks: chunks.toInt(),
+    );
+  }
+}
+
 class Manifest {
   const Manifest({
     required this.schemaVersion,
@@ -65,6 +107,7 @@ class Manifest {
     required this.refreshedAt,
     required this.ttlSeconds,
     required this.files,
+    this.bundle,
   });
 
   final int schemaVersion;
@@ -74,6 +117,9 @@ class Manifest {
   final DateTime refreshedAt;
   final int ttlSeconds;
   final List<ManifestFile> files;
+
+  /// 첫 설치용 묶음. 옛 서버가 만든 매니페스트에는 없다
+  final BundleRef? bundle;
 
   int get totalRecords => files.fold(0, (sum, f) => sum + f.records);
 
@@ -106,6 +152,11 @@ class Manifest {
       files: rawFiles
           .map((f) => ManifestFile.fromJson(f as Map<String, dynamic>))
           .toList(growable: false),
+      // 없으면 없는 대로 간다 — 옛 서버가 만든 매니페스트에는 이 자리가 없다.
+      bundle: switch (json['bundle']) {
+        final Map<String, dynamic> b => BundleRef.fromJson(b),
+        _ => null,
+      },
     );
   }
 

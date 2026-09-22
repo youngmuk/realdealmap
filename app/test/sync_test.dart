@@ -54,6 +54,43 @@ class _Fixture {
     );
   }
 
+  /// 서버(`packages/ingest/src/bundle.ts`)가 만드는 것과 같은 모양의 묶음.
+  ///
+  /// 해시는 청크와 같이 **압축 전** 바이트에 대해 낸다.
+  Map<String, dynamic>? bundleRef;
+
+  void addBundle({
+    List<ManifestFile>? only,
+    String? forgeHash,
+    int schemaVersion = 1,
+    String? sggCdOverride,
+  }) {
+    final take = only ?? files;
+    final payload = {
+      'schemaVersion': schemaVersion,
+      'sggCd': sggCdOverride ?? sggCd,
+      'chunks': [
+        for (final f in take)
+          {
+            'path': f.path,
+            'body': jsonDecode(utf8.decode(gzip.decode(objects[f.path]!))),
+          },
+      ],
+    };
+    final json = Uint8List.fromList(utf8.encode(jsonEncode(payload)));
+    final digest = sha256.convert(json).toString();
+    final path = 'v1/regions/$sggCd/bundle.${digest.substring(0, 16)}.json.gz';
+    final zipped = Uint8List.fromList(gzip.encode(json));
+
+    objects[path] = zipped;
+    bundleRef = {
+      'path': path,
+      'sha256': forgeHash ?? digest,
+      'bytes': zipped.length,
+      'chunks': take.length,
+    };
+  }
+
   void publish({
     DateTime? refreshedAt,
     int ttlSeconds = 3600,
@@ -78,6 +115,7 @@ class _Fixture {
             },
           )
           .toList(),
+      if (bundleRef != null) 'bundle': bundleRef,
     };
     objects['v1/regions/$sggCd/manifest.json'] = Uint8List.fromList(
       utf8.encode(jsonEncode(manifest)),
@@ -650,6 +688,170 @@ void main() {
 
       expect(manifest.isStale(DateTime.utc(2026, 9, 7, 12, 59)), isFalse);
       expect(manifest.isStale(DateTime.utc(2026, 9, 7, 13, 1)), isTrue);
+    });
+  });
+
+  // ── 첫 설치용 묶음 ───────────────────────────────────────────────────
+  //
+  // 앱을 막 깐 사람은 청크 108개를 전부 받는다 = 요청 108번. 공개 버킷은
+  // 캐시를 타지 않아 그 하나하나가 R2 읽기이고, 무료 한도가 거기서 먼저 찬다.
+  // 묶음은 그것을 요청 1번으로 만든다.
+  //
+  // 여기서 세는 것은 **덜 받았는가**와 **틀린 것을 받지 않았는가** 둘이다.
+  // 묶음은 어디까지나 지름길이라, 막히면 조용히 예전 길로 돌아가야 한다.
+  group('첫 설치용 묶음', () {
+    _Fixture manyChunks({int months = 10}) {
+      final f = _Fixture('11680');
+      for (var i = 0; i < months; i += 1) {
+        f.addChunk(
+          propertyType: 'apartment',
+          tradeType: 'sale',
+          month: '2026${(i + 1).toString().padLeft(2, '0')}',
+          records: [record('tx-$i', lat: 37.5, lng: 127.0)],
+        );
+      }
+      return f;
+    }
+
+    test('요청 한 번으로 전부 받는다', () async {
+      final f = manyChunks();
+      f.addBundle();
+      f.publish();
+      final remote = _FakeRemote(f.objects);
+
+      final out = await SyncEngine(db, remote).sync('11680');
+
+      expect(out.status, SyncStatus.updated);
+      expect(out.downloaded, 10);
+      expect(out.fromBundle, 10);
+      expect(await rowCount(), 10);
+      // 매니페스트 1 + 묶음 1. 청크는 하나도 낱개로 받지 않았다.
+      expect(remote.fetched.where((k) => k.startsWith('v1/data/')), isEmpty);
+      expect(remote.fetched.length, 2);
+    });
+
+    test('묶음이 없으면 예전처럼 낱개로 받는다', () async {
+      final f = manyChunks();
+      f.publish();
+      final remote = _FakeRemote(f.objects);
+
+      final out = await SyncEngine(db, remote).sync('11680');
+
+      expect(out.status, SyncStatus.updated);
+      expect(out.fromBundle, 0);
+      expect(await rowCount(), 10);
+      expect(remote.fetched.where((k) => k.startsWith('v1/data/')).length, 10);
+    });
+
+    // 묶음 해시 하나가 안에 든 전부를 덮는다. 그게 안 맞으면 믿을 근거가 없다.
+    test('묶음 해시가 다르면 쓰지 않고 낱개로 간다', () async {
+      final f = manyChunks();
+      f.addBundle(forgeHash: 'f' * 64);
+      f.publish();
+      final remote = _FakeRemote(f.objects);
+
+      final out = await SyncEngine(db, remote).sync('11680');
+
+      expect(out.status, SyncStatus.updated);
+      expect(out.fromBundle, 0);
+      expect(await rowCount(), 10);
+      expect(remote.fetched.where((k) => k.startsWith('v1/data/')).length, 10);
+    });
+
+    test('묶음이 없어졌어도 동기화는 성공한다', () async {
+      final f = manyChunks();
+      f.addBundle();
+      f.publish();
+      f.objects.remove(f.bundleRef!['path']);
+      final remote = _FakeRemote(f.objects);
+
+      final out = await SyncEngine(db, remote).sync('11680');
+
+      expect(out.status, SyncStatus.updated);
+      expect(await rowCount(), 10);
+    });
+
+    test('묶음만 못 받아도 낱개로 끝낸다', () async {
+      final f = manyChunks();
+      f.addBundle();
+      f.publish();
+      final remote = _FakeRemote(f.objects)
+        ..offline = {f.bundleRef!['path'] as String};
+
+      final out = await SyncEngine(db, remote).sync('11680');
+
+      expect(out.status, SyncStatus.updated);
+      expect(await rowCount(), 10);
+    });
+
+    // 묶음은 뒤처질 수 있다. 경로에 내용 해시가 박혀 있어 옛 청크는 지금
+    // 매니페스트와 안 맞는데, 그것을 반영하면 옛 자료가 새 자료로 둔갑한다.
+    test('뒤처진 묶음은 맞는 것만 쓰고 나머지는 낱개로 받는다', () async {
+      final f = manyChunks();
+      // 묶음은 앞 6개만 덮는다.
+      f.addBundle(only: f.files.take(6).toList());
+      f.publish();
+      final remote = _FakeRemote(f.objects);
+
+      final out = await SyncEngine(db, remote).sync('11680');
+
+      expect(out.status, SyncStatus.updated);
+      expect(out.fromBundle, 6);
+      expect(out.downloaded, 10);
+      expect(await rowCount(), 10);
+      expect(remote.fetched.where((k) => k.startsWith('v1/data/')).length, 4);
+    });
+
+    // 지역이 섞이면 남의 동네 거래가 이 지역 것으로 들어간다.
+    test('다른 지역의 묶음은 쓰지 않는다', () async {
+      final f = manyChunks();
+      f.addBundle(sggCdOverride: '26350');
+      f.publish();
+      final remote = _FakeRemote(f.objects);
+
+      final out = await SyncEngine(db, remote).sync('11680');
+
+      expect(out.fromBundle, 0);
+      expect(await rowCount(), 10);
+    });
+
+    test('모르는 판의 묶음은 쓰지 않는다', () async {
+      final f = manyChunks();
+      f.addBundle(schemaVersion: 99);
+      f.publish();
+      final remote = _FakeRemote(f.objects);
+
+      final out = await SyncEngine(db, remote).sync('11680');
+
+      expect(out.fromBundle, 0);
+      expect(await rowCount(), 10);
+    });
+
+    // 청크 두어 개 바뀐 갱신에 지역 전체를 받으면 요청은 줄어도 사용자
+    // 데이터를 태운다. 아끼려다 더 쓰는 것은 아끼는 것이 아니다.
+    test('조금만 빠졌으면 묶음을 열지 않는다', () async {
+      final f = manyChunks();
+      f.addBundle();
+      f.publish();
+      final remote = _FakeRemote(f.objects);
+      await SyncEngine(db, remote).sync('11680');
+
+      // 한 달만 새로 굽는다 — 빠진 것은 하나뿐이다.
+      f.files.removeAt(0);
+      f.addChunk(
+        propertyType: 'apartment',
+        tradeType: 'sale',
+        month: '202601',
+        records: [record('tx-new', lat: 37.5, lng: 127.0)],
+      );
+      f.publish(refreshedAt: DateTime.utc(2026, 9, 8, 12));
+      remote.fetched.clear();
+
+      final out = await SyncEngine(db, remote).sync('11680');
+
+      expect(out.status, SyncStatus.updated);
+      expect(out.fromBundle, 0);
+      expect(remote.fetched.any((k) => k.contains('/bundle.')), isFalse);
     });
   });
 }

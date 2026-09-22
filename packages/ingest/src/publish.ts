@@ -3,6 +3,7 @@ import type { PropertyType, TradeType } from '@realdealmap/shared';
 import { chunkObjectKey, regionPrefix, type Chunk } from './chunk.js';
 import { MAX_MONTHS, recentPeriods } from './tasks.js';
 import type { R2Client } from './r2.js';
+import { buildBundle, type BundleRef } from './bundle.js';
 
 /**
  * R2 배포 — 청크 업로드와 매니페스트 교체.
@@ -34,6 +35,14 @@ export interface Manifest {
   /** 서버가 원격 조정 가능 */
   readonly ttlSeconds: number;
   readonly files: readonly ManifestFile[];
+  /**
+   * 첫 설치용 묶음(`bundle.ts`). **없을 수도 있고 뒤처져 있을 수도 있다.**
+   *
+   * 묶음 안의 청크는 경로에 내용 해시가 박혀 있어, 뒤처진 것은 이 매니페스트의
+   * 어느 경로와도 맞지 않아 앱이 그냥 무시한다. 그래서 있으면 요청이 줄고
+   * 없으면 예전처럼 낱개로 받을 뿐, 틀린 자료가 나갈 길이 없다.
+   */
+  readonly bundle?: BundleRef;
 }
 
 export const SCHEMA_VERSION = 1;
@@ -310,12 +319,31 @@ export const publishRegion = async (
     ...carryOver(previous, periods, retainMonths, now(), unattempted),
   ]);
   const totalRecords = totalRecordsOf(files);
+
+  // 묶음은 **이번에 구운 청크만으로 매니페스트가 다 덮일 때** 만든다.
+  //
+  // 이어받은 달(`carryOver`)이 하나라도 있으면 그 내용물은 손에 없고 R2에만
+  // 있다. 그것을 도로 받아 묶으면 지금 아끼려는 바로 그 요청을 쓰게 된다.
+  // 3개월만 손대는 예열은 그래서 묶음을 안 건드리고 지나가고, 12개월을 통째로
+  // 다시 굽는 주간 재수집이 알아서 따라잡는다. 뒤처진 묶음은 해가 없다 —
+  // 경로가 안 맞는 청크는 앱이 무시한다.
+  const fromThisRun = new Map(chunks.map((c) => [chunkObjectKey(c), c] as const));
+  const complete = files.length > 0 && files.every((f) => fromThisRun.has(f.path));
+  const bundle = complete
+    ? buildBundle(
+        sggCd,
+        files.map((f) => ({ path: f.path, body: fromThisRun.get(f.path)!.payload })),
+      )
+    : undefined;
+
   const manifest: Manifest = {
     schemaVersion: SCHEMA_VERSION,
     sggCd,
     refreshedAt: now().toISOString(),
     ttlSeconds,
     files,
+    // 이번에 못 만들었으면 이전 것을 이어받는다 — 뒤처져도 앱이 알아서 거른다.
+    ...(bundle ? { bundle: bundle.ref } : previous?.bundle ? { bundle: previous.bundle } : {}),
   };
 
   // 게이트 둘을 순서대로 본다. 합계는 지역 전체의 붕괴를, 조합은 한 유형의 실종을 잡는다.
@@ -381,6 +409,18 @@ export const publishRegion = async (
       cacheControl: 'public, max-age=31536000, immutable',
     });
     uploaded.push(key);
+  }
+
+  // 묶음도 매니페스트보다 먼저 올린다. 매니페스트가 가리키는 것은 반드시
+  // 이미 거기 있어야 한다 — 청크와 같은 순서 규칙이다.
+  if (bundle && !(await r2.exists(bundle.ref.path))) {
+    await r2.put(bundle.ref.path, bundle.gzip, {
+      contentType: 'application/json',
+      contentEncoding: 'gzip',
+      // 콘텐츠 해시 경로다. 영구 캐시해도 안전하다.
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+    uploaded.push(bundle.ref.path);
   }
 
   // 전량 성공한 뒤에야 매니페스트를 바꾼다.

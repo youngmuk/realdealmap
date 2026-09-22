@@ -177,14 +177,17 @@ describe('매니페스트 작성', () => {
 });
 
 describe('전량 성공 후에만 교체', () => {
-  test('청크를 모두 올린 뒤 매니페스트를 마지막에 쓴다', async () => {
+  // 매니페스트가 먼저 바뀌면, 그것을 읽은 앱이 아직 없는 청크를 가리키게 된다.
+  test('청크와 묶음을 모두 올린 뒤 매니페스트를 마지막에 쓴다', async () => {
     const { client, puts } = fakeR2();
     const chunks = [chunkFor('apartment/sale'), chunkFor('land/sale')];
     await publishRegion(client, '11680', chunks, {});
 
-    expect(puts).toHaveLength(3);
+    // 청크 2 + 묶음 1 + 매니페스트 1
+    expect(puts).toHaveLength(4);
     expect(puts[puts.length - 1]).toBe(manifestKey('11680'));
-    expect(puts.slice(0, 2).every((k) => k.startsWith('v1/data/'))).toBe(true);
+    expect(puts.filter((k) => k.startsWith('v1/data/'))).toHaveLength(2);
+    expect(puts.filter((k) => k.includes('/bundle.'))).toHaveLength(1);
   });
 
   test('청크 하나가 실패하면 매니페스트를 바꾸지 않는다', async () => {
@@ -214,8 +217,23 @@ describe('중복 업로드 회피', () => {
 
     const result = await publishRegion(client, '11680', [chunk], {});
     expect(result.skipped).toEqual([chunkObjectKey(chunk)]);
+    // 청크는 건너뛰지만 묶음은 아직 없으므로 올라간다.
+    expect(result.uploaded.every((k) => k.includes('/bundle.'))).toBe(true);
+    expect(puts.filter((k) => k.startsWith('v1/data/'))).toEqual([]);
+    expect(puts[puts.length - 1]).toBe(manifestKey('11680'));
+  });
+
+  // 묶음도 콘텐츠 해시 경로라 같은 자료면 같은 경로다. 두 번 올릴 이유가 없다.
+  test('묶음도 이미 있으면 올리지 않는다', async () => {
+    const chunk = chunkFor('apartment/sale');
+    const probe = fakeR2();
+    await publishRegion(probe.client, '11680', [chunk], {});
+    const bundleKey = probe.puts.find((k) => k.includes('/bundle.'))!;
+
+    const { client, puts } = fakeR2({ existing: new Set([chunkObjectKey(chunk), bundleKey]) });
+    const result = await publishRegion(client, '11680', [chunk], {});
+
     expect(result.uploaded).toEqual([]);
-    // 매니페스트만 쓴다.
     expect(puts).toEqual([manifestKey('11680')]);
   });
 
@@ -641,5 +659,59 @@ describe('publishRegion 이어받기', () => {
     });
 
     expect(result.hold).toMatchObject({ kind: 'recordDrop' });
+  });
+});
+
+describe('첫 설치용 묶음', () => {
+  // 묶음은 요청 108번을 1번으로 줄이려고 있다. 한 달이라도 이어받았으면 그
+  // 내용물은 손에 없고 R2에만 있는데, 도로 받아서 묶으면 아끼려던 요청을 쓴다.
+  test('이어받은 달이 있으면 묶지 않는다', async () => {
+    const { client, store, puts } = fakeR2();
+    seedManifest(store, '11680', 100, ['202607']);
+    const chunk = chunkFor('apartment/sale', '11680', '202608');
+
+    const result = await publishRegion(client, '11680', [chunk], {
+      minRecordRatio: 0,
+      periods: ['202608'],
+      now: () => new Date('2026-08-20T00:00:00Z'),
+    });
+
+    expect(result.manifest.files.length).toBeGreaterThan(1);
+    expect(puts.some((k) => k.includes('/bundle.'))).toBe(false);
+  });
+
+  // 못 만든 판에서 참조까지 떨어뜨리면 그 뒤로 첫 설치가 계속 낱개로 받는다.
+  // 뒤처진 묶음은 해가 없다 — 경로가 안 맞는 청크는 앱이 무시한다.
+  test('못 만든 판에서는 이전 묶음을 이어받는다', async () => {
+    const { client, store } = fakeR2();
+    const first = await publishRegion(client, '11680', [chunkFor('apartment/sale')], {});
+    expect(first.manifest.bundle).toBeDefined();
+
+    const next = await publishRegion(client, '11680', [chunkFor('apartment/sale', '11680', '202607')], {
+      minRecordRatio: 0,
+      periods: ['202607'],
+      now: () => new Date('2026-08-20T00:00:00Z'),
+    });
+
+    expect(next.manifest.bundle).toEqual(first.manifest.bundle);
+    expect(store.has(next.manifest.bundle!.path)).toBe(true);
+  });
+
+  test('전부 이번에 구웠으면 묶음이 매니페스트 전부를 덮는다', async () => {
+    const { client } = fakeR2();
+    const chunks = [chunkFor('apartment/sale'), chunkFor('land/sale')];
+
+    const result = await publishRegion(client, '11680', chunks, {});
+
+    expect(result.manifest.bundle?.chunks).toBe(result.manifest.files.length);
+  });
+
+  // 매니페스트를 안 바꾸는 시험 실행이 묶음만 올리면 앞뒤가 어긋난다.
+  test('시험 실행은 아무것도 올리지 않는다', async () => {
+    const { client, puts } = fakeR2();
+
+    await publishRegion(client, '11680', [chunkFor('apartment/sale')], { dryRun: true });
+
+    expect(puts).toEqual([]);
   });
 });

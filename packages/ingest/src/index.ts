@@ -189,3 +189,6 @@ export {
   umdIndex,
   umdRowsOf,
 } from './search.js';
+
+export type { Bundle, BundleEntry, BundlePayload, BundleRef } from './bundle.js';
+export { BUNDLE_SCHEMA_VERSION, BundleError, buildBundle, bundleObjectKey } from './bundle.js';

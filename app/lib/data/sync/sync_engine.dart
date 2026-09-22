@@ -38,6 +38,7 @@ class SyncOutcome {
     required this.status,
     this.manifest,
     this.downloaded = 0,
+    this.fromBundle = 0,
     this.reused = 0,
     this.applied = 0,
     this.message,
@@ -49,6 +50,9 @@ class SyncOutcome {
 
   /// 실제로 받은 청크 수
   final int downloaded;
+
+  /// 그중 **묶음 하나로** 받은 청크 수. 아낀 요청 수가 이것에서 1을 뺀 값이다
+  final int fromBundle;
 
   /// 경로가 그대로라 받지 않은 청크 수. 콘텐츠 해시 경로 덕분에 생긴다
   final int reused;
@@ -84,6 +88,15 @@ class _VerifiedChunk {
 /// 그렇다고 108개를 한꺼번에 열면 모바일 회선에서 서로를 밀어내고 타임아웃이
 /// 늘어난다. 여섯 개는 왕복 지연을 거의 다 숨기면서 그 지점에 닿지 않는다.
 const int kChunkConcurrency = 6;
+
+/// 앱이 이해하는 묶음 판. 서버가 다른 판을 주면 묶음을 안 쓰고 낱개로 간다.
+const int kSupportedBundleVersion = 1;
+
+/// 이만큼은 빠져 있어야 묶음을 연다.
+///
+/// 낱개 몇 개를 아끼자고 지역 전체를 받는 것은 어느 쪽으로도 남지 않는다.
+/// 첫 설치는 108개가 빠져 있어 항상 넘고, 월 갱신은 보통 한 자릿수라 안 넘는다.
+const int kBundleMinChunks = 8;
 
 class _ChunkRejected implements Exception {
   _ChunkRejected(this.message);
@@ -169,7 +182,20 @@ class SyncEngine {
       );
     }
 
+    // 묶음으로 덮을 수 있는 만큼 먼저 덜어낸다. 첫 설치에서 요청 108번이
+    // 1번이 되는 자리다. 실패하면 아무 일도 없었던 듯 낱개로 간다.
     final verified = <_VerifiedChunk>[];
+    var fromBundle = 0;
+    if (_worthBundling(manifest, missing)) {
+      final taken = await _tryBundle(sggCd, manifest.bundle!, missing);
+      if (taken != null) {
+        verified.addAll(taken);
+        fromBundle = taken.length;
+        final covered = taken.map((c) => c.file.path).toSet();
+        missing.removeWhere((f) => covered.contains(f.path));
+      }
+    }
+
     for (var i = 0; i < missing.length; i += kChunkConcurrency) {
       final slice = missing.skip(i).take(kChunkConcurrency).toList();
       final results = await Future.wait(slice.map((f) => _tryFetch(sggCd, f)));
@@ -215,9 +241,78 @@ class SyncEngine {
       status: SyncStatus.updated,
       manifest: manifest,
       downloaded: verified.length,
+      fromBundle: fromBundle,
       reused: applied.length - obsolete.length,
       applied: count,
     );
+  }
+
+  /// 묶음을 받을 값어치가 있는가.
+  ///
+  /// 묶음은 그 지역 **전부**다. 청크 두어 개만 바뀐 갱신에 이걸 받으면 60KB
+  /// 받을 자리에 2.5MB를 받는다 — 요청은 줄어도 사용자 데이터를 태운다.
+  /// 그래서 **낱개로 받을 양의 두 배를 넘지 않을 때만** 받는다. 첫 설치는
+  /// 낱개 합계가 곧 지역 전체라 항상 통과하고, 월 갱신은 항상 걸러진다.
+  static bool _worthBundling(Manifest manifest, List<ManifestFile> missing) {
+    final bundle = manifest.bundle;
+    if (bundle == null) return false;
+    // 한두 개 아끼자고 묶음을 여는 것은 어느 쪽으로도 남지 않는다.
+    if (missing.length < kBundleMinChunks) return false;
+    final loose = missing.fold<int>(0, (sum, f) => sum + f.bytes);
+    return bundle.bytes <= loose * 2;
+  }
+
+  /// 묶음을 받아 **매니페스트가 가리키는 것만** 꺼낸다.
+  ///
+  /// 실패하면 `null`이다 — 부르는 쪽이 낱개로 돌아간다. 묶음은 어디까지나
+  /// 지름길이라, 막혔다고 동기화가 실패할 이유가 없다.
+  ///
+  /// 안에 든 청크를 하나씩 다시 해시하지 않는다. 묶음 해시 하나가 그 바이트
+  /// 전부를 덮으므로 검증의 세기는 같다.
+  Future<List<_VerifiedChunk>?> _tryBundle(
+    String sggCd,
+    BundleRef bundle,
+    List<ManifestFile> missing,
+  ) async {
+    try {
+      final raw = await _remote.get(bundle.path);
+      if (raw == null) return null;
+
+      final json = maybeGunzip(raw);
+      if (sha256.convert(json).toString() != bundle.sha256) return null;
+
+      final body = jsonDecode(utf8.decode(json));
+      if (body is! Map<String, dynamic>) return null;
+      if (body['schemaVersion'] != kSupportedBundleVersion) return null;
+      // 지역이 섞이면 남의 동네 거래가 이 지역 것으로 반영된다.
+      if (body['sggCd'] != sggCd) return null;
+
+      final chunks = body['chunks'];
+      if (chunks is! List) return null;
+
+      final wanted = {for (final f in missing) f.path: f};
+      final out = <_VerifiedChunk>[];
+      for (final entry in chunks) {
+        if (entry is! Map<String, dynamic>) return null;
+        // 뒤처진 묶음의 옛 청크다. 경로에 내용 해시가 박혀 있어 지금 매니페스트와
+        // 안 맞으면 쓸 것이 아니다 — 버리고 그 몫은 낱개로 받는다.
+        final file = wanted[entry['path']];
+        if (file == null) continue;
+
+        final records = (entry['body'] as Map<String, dynamic>?)?['records'];
+        if (records is! List) return null;
+        out.add(
+          _VerifiedChunk(file, [
+            for (final record in records) _toCompanion(sggCd, file, record),
+          ]),
+        );
+      }
+      return out;
+    } on RemoteException {
+      return null;
+    } on FormatException {
+      return null;
+    }
   }
 
   /// [_fetchAndVerify]를 부르되 예외를 **값으로** 돌려준다.

@@ -59,6 +59,14 @@ class AboutSheet extends StatelessWidget {
           url: 'https://www.openstreetmap.org/copyright',
         ),
         _Source('주소와 좌표', '도로명주소 © 행정안전부', url: 'https://www.juso.go.kr'),
+        // 상세창의 건물 외곽선이 이 자료다. 좌표와 같은 출처지만 받는 자료가
+        // 달라(건물 도형) 따로 적는다 — 무엇을 보고 그린 것인지 화면에서
+        // 알 수 있어야 한다.
+        _Source(
+          '건물 외곽선',
+          '도로명주소 건물 도형 © 행정안전부',
+          url: 'https://business.juso.go.kr',
+        ),
         _Source('행정구역 코드', '행정안전부 행정표준코드관리시스템', url: 'https://www.code.go.kr'),
         // CC BY 4.0은 출처 표기가 조건이다. 지우면 라이선스 위반이라
         // 화면에서 뺄 수 없다. 같은 문구가 경계 파일 안에도 들어 있다.
