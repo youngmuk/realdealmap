@@ -1,9 +1,9 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:realdealmap/data/db/database.dart';
@@ -145,6 +145,41 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.close));
     await tester.pumpAndSettle();
+
+    expect(find.byType(TextField), findsNothing);
+  });
+
+  /// 기기의 뒤로 가기. 안드로이드가 보내는 것과 같은 신호를 넣는다.
+  Future<void> back(WidgetTester tester) async {
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      'flutter/navigation',
+      const JSONMethodCodec().encodeMethodCall(const MethodCall('popRoute')),
+      (_) {},
+    );
+    await tester.pumpAndSettle();
+  }
+
+  // 안드로이드에서 뒤로 가기는 **열린 것을 먼저 닫는** 단추다. 검색창을 열어 둔
+  // 채 누르면 앱이 통째로 꺼지는데, 사용자는 검색만 접으려던 것이라
+  // "뒤로 갔더니 앱이 죽었다"로 읽는다. 실기기에서 그렇게 꺼졌다.
+  testWidgets('뒤로 가기는 앱이 아니라 검색창을 닫는다', (tester) async {
+    await open(tester, app());
+    expect(find.byType(TextField), findsOneWidget);
+
+    await back(tester);
+
+    expect(find.byType(TextField), findsNothing);
+    expect(find.bySemanticsLabel('주소 검색'), findsOneWidget);
+  });
+
+  // 친 글자가 있어도 한 번이면 닫힌다 — 글자 지우기와 창 닫기를 두 번에
+  // 나누면, 사용자는 뒤로 가기를 두 번 눌러야 하는 이유를 알 수 없다.
+  testWidgets('친 글자가 있어도 뒤로 가기 한 번이면 닫힌다', (tester) async {
+    await open(tester, app());
+    await type(tester, '중곡동');
+    expect(inList('중곡동'), findsOneWidget);
+
+    await back(tester);
 
     expect(find.byType(TextField), findsNothing);
   });

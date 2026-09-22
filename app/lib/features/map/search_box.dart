@@ -149,53 +149,63 @@ class _MapSearchBoxState extends ConsumerState<MapSearchBox> {
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Material(
-          color: Palette.surface,
-          elevation: 2,
-          borderRadius: BorderRadius.circular(24),
-          child: Row(
-            children: [
-              const SizedBox(width: 14),
-              const Icon(Icons.search, size: 20, color: Palette.ink3),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  focusNode: _focus,
-                  textInputAction: TextInputAction.search,
-                  onChanged: _onChanged,
-                  style: const TextStyle(fontSize: 15, color: Palette.ink),
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    border: InputBorder.none,
-                    hintText: '동 이름 · 단지 이름 (예: 중곡동, ㅈㄱㄷ)',
-                    hintStyle: TextStyle(fontSize: 14, color: Palette.ink3),
+    // 안드로이드의 뒤로 가기는 **열린 것을 먼저 닫는** 단추다. 막아 두지 않으면
+    // 검색창만 접으려던 사람에게 앱이 통째로 꺼진다 — 화면에 열린 것이 있는데
+    // 뒤로 가기가 그것을 그냥 지나치면, 사용자는 앱이 죽었다고 읽는다.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _toggle();
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: Palette.surface,
+            elevation: 2,
+            borderRadius: BorderRadius.circular(24),
+            child: Row(
+              children: [
+                const SizedBox(width: 14),
+                const Icon(Icons.search, size: 20, color: Palette.ink3),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    focusNode: _focus,
+                    textInputAction: TextInputAction.search,
+                    onChanged: _onChanged,
+                    style: const TextStyle(fontSize: 15, color: Palette.ink),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      border: InputBorder.none,
+                      hintText: '동 이름 · 단지 이름 (예: 중곡동, ㅈㄱㄷ)',
+                      hintStyle: TextStyle(fontSize: 14, color: Palette.ink3),
+                    ),
                   ),
                 ),
-              ),
-              IconButton(
-                tooltip: '닫기',
-                onPressed: _toggle,
-                icon: const Icon(Icons.close, size: 20, color: Palette.ink3),
-              ),
-            ],
-          ),
-        ),
-        if (_controller.text.trim().length >= kMinQueryLength)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: _Results(
-              hits: _hits,
-              onPick: _choose,
-              unavailable: searchUnavailable(
-                ref.watch(regionIndexProvider).value,
-              ),
+                IconButton(
+                  tooltip: '닫기',
+                  onPressed: _toggle,
+                  icon: const Icon(Icons.close, size: 20, color: Palette.ink3),
+                ),
+              ],
             ),
           ),
-      ],
+          if (_controller.text.trim().length >= kMinQueryLength)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: _Results(
+                hits: _hits,
+                onPick: _choose,
+                unavailable: searchUnavailable(
+                  ref.watch(regionIndexProvider).value,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
